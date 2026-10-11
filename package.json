@@ -11,7 +11,7 @@
     "start": "node server/index.js",
     "app": "vite build && electron .",
     "dist": "vite build && electron-builder --win --publish never",
-    "test": "node --test shared/ src/net/ src/three/",
+    "test": "node --test",
     "assets": "python scripts/fetch-assets.py",
     "dist:mac": "vite build && electron-builder --mac --publish never"
   },
