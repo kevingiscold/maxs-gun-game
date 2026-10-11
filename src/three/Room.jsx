@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { TABLE_HEIGHT, TABLE_RADIUS } from './layout.js';
 import { sinceShot } from './fx.js';
 import { usePBR, smokeTexture } from './materials.js';
+import { useStore } from '../store.js';
 
 const LAMP_Y = 2.55;
 
@@ -214,6 +215,7 @@ function Lamp({ shadowSize = 1024 }) {
   const spot = useRef();
   const swing = useRef();
   const cone = useRef();
+  const power = useRef(1); // Murder!: the lamp dies during a blackout
   const target = useMemo(() => {
     const o = new THREE.Object3D();
     o.position.set(0, 0, 0);
@@ -224,8 +226,15 @@ function Lamp({ shadowSize = 1024 }) {
     const flicker = 0.94 + Math.sin(t * 13) * 0.02 + Math.sin(t * 31.7) * 0.015 + (Math.random() < 0.004 ? -0.35 : 0);
     const shot = sinceShot();
     const boost = shot < 160 ? 2.2 : 1;
-    spot.current.intensity = 62 * flicker * boost;
-    if (cone.current) cone.current.material.uniforms.uStrength.value = 0.03 * flicker;
+    const st = useStore.getState();
+    const g = st.screen === 'game' && st.game?.mode === 'murder' ? st.game : null;
+    const dark = g?.dark;
+    // the murderer sees in the dark: for them the room only dims a little
+    const killerEyes = dark && g.murdererId === st.myId && !st.ghost;
+    // off: instantly (a breaker trips); on: a stuttering catch
+    power.current = killerEyes ? 0.7 : dark ? 0.04 : power.current < 1 ? Math.min(1, power.current + 0.02 + (Math.random() < 0.15 ? 0.3 : 0)) : 1;
+    spot.current.intensity = 62 * flicker * boost * power.current;
+    if (cone.current) cone.current.material.uniforms.uStrength.value = 0.03 * flicker * power.current;
     swing.current.rotation.z = Math.sin(t * 0.6) * 0.02 + (shot < 1800 ? Math.sin(shot / 95) * 0.07 * (1 - shot / 1800) : 0);
     swing.current.rotation.x = Math.sin(t * 0.43) * 0.012;
   });

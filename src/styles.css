@@ -1242,3 +1242,280 @@ button.mode-card:hover {
   color: #9fb6c9;
   font-size: 0.8rem;
 }
+
+/* ---------- Murder! ---------- */
+.mode-picker {
+  margin: 0 0 14px;
+}
+.mode-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.mode-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--ink-dim);
+  cursor: pointer;
+}
+.mode-btn b {
+  font-family: var(--head);
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 1.05rem;
+}
+.mode-btn small {
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+.mode-btn.on {
+  border-color: var(--amber);
+  color: var(--ink);
+  background: rgba(232, 165, 75, 0.08);
+}
+.mode-btn.on b {
+  color: var(--amber-hot);
+}
+.mode-btn:disabled {
+  cursor: default;
+}
+.goal-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 0.85rem;
+}
+.goal-row > span {
+  flex: 1;
+}
+.goal-row .goal {
+  font-family: var(--head);
+  font-size: 1.4rem;
+  color: var(--blood-hot);
+  min-width: 1.4em;
+  text-align: center;
+}
+.goal-row .hint {
+  margin: 0;
+}
+
+.badge.bodies {
+  border-color: var(--blood);
+  color: var(--blood-hot);
+}
+.lights-clock {
+  margin-left: 12px;
+  font-size: 0.75rem;
+  letter-spacing: 0.15em;
+}
+.lights-clock.soon {
+  color: var(--blood-hot);
+  animation: pulse 0.9s ease-in-out infinite;
+}
+.lights-clock.dark {
+  color: #ddd;
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* The blackout: opaque for the living, so nothing behind it can be brightened up. */
+.lights-out {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  pointer-events: none;
+  animation: lights-cut 0.45s steps(1, end);
+}
+.lights-out.ghost {
+  background: rgba(2, 5, 12, 0.45);
+  animation: none;
+}
+@keyframes lights-cut {
+  0% {
+    opacity: 1;
+  }
+  20% {
+    opacity: 0.25;
+  }
+  40% {
+    opacity: 1;
+  }
+  60% {
+    opacity: 0.6;
+  }
+  80% {
+    opacity: 1;
+  }
+}
+
+.role-card {
+  position: absolute;
+  top: 34%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(460px, 90vw);
+  padding: 22px 26px;
+  text-align: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7);
+}
+.role-card h2 {
+  margin: 4px 0 10px;
+  font-family: var(--head);
+  font-weight: 400;
+  font-size: 2.2rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ok);
+}
+.role-card.murderer {
+  border-color: var(--blood);
+}
+.role-card.murderer h2 {
+  color: var(--blood-hot);
+}
+.role-card p {
+  margin: 0 0 8px;
+  line-height: 1.45;
+}
+.role-card small {
+  color: var(--ink-dim);
+}
+.role-chip {
+  padding: 6px 14px;
+  font-size: 0.85rem;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  text-shadow: 0 1px 3px #000;
+}
+.role-chip.murderer {
+  border-color: var(--blood);
+  color: var(--blood-hot);
+}
+.role-chip.ghost-chip {
+  border-color: rgba(160, 200, 240, 0.4);
+  color: #cfe8ff;
+}
+.role-chip.ghost-chip b {
+  color: var(--blood-hot);
+  font-weight: 400;
+}
+.roster-role {
+  font-style: normal;
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--blood-hot);
+}
+
+.crosshair {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: rgba(234, 220, 196, 0.7);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+.crosshair.cocked {
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  background: none;
+  border: 2px solid var(--amber-hot);
+}
+.crosshair.cocked.on {
+  border-color: var(--blood-hot);
+}
+.crosshair.on:not(.cocked) {
+  background: var(--amber-hot);
+}
+.sight-name {
+  position: absolute;
+  top: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 0.8rem;
+  color: var(--ink);
+  text-shadow: 0 1px 3px #000;
+}
+.gun-hint {
+  position: absolute;
+  bottom: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.78rem;
+  color: var(--ink-dim);
+  text-shadow: 0 1px 3px #000;
+  white-space: nowrap;
+}
+.murder-feed {
+  position: absolute;
+  top: 130px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(560px, 90vw);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+  font-size: 1.1rem;
+  text-shadow: 0 2px 6px #000;
+  pointer-events: none;
+}
+.verdict {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.verdict b {
+  color: var(--blood-hot);
+  font-weight: 400;
+}
+.stats tr.murderer-row td {
+  color: var(--blood-hot);
+}
+
+/* the murderer's blackout: a cold, dim, night-vision look instead of black */
+.lights-out.killer {
+  background: radial-gradient(ellipse at center, rgba(10, 30, 40, 0.15), rgba(0, 8, 14, 0.75) 80%);
+  animation: none;
+}
+.killer-sight {
+  position: absolute;
+  top: 168px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.8rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: #9fd4e6;
+  text-shadow: 0 1px 3px #000;
+}
+
+.opt-note {
+  margin-top: 4px;
+  font-size: 0.7rem;
+  color: var(--ink-dim);
+}

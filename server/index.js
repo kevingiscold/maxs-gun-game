@@ -7,11 +7,12 @@ import { Server } from 'socket.io';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
-import { MAX_PLAYERS, MIN_PLAYERS, CODE_LENGTH, CODE_ALPHABET } from '../shared/constants.js';
+import { CODE_LENGTH, CODE_ALPHABET, MODE, MURDER, limitsFor } from '../shared/constants.js';
 import { sanitizeAvatar, sanitizeName } from '../shared/avatar.js';
-import { MatchRunner } from '../shared/runner.js';
+import { MatchRunner, MurderRunner } from '../shared/runner.js';
 import { viewFor } from '../shared/engine.js';
-import { makeBot, createBotDriver } from '../shared/bot.js';
+import { murderView, clampGoal } from '../shared/murder.js';
+import { makeBot, createBotDriver, createMurderBotDriver } from '../shared/bot.js';
 import os from 'node:os';
 
 const app = express();
@@ -44,7 +45,7 @@ const rooms = new Map();
 
 /**
  * @typedef {{ id:string, name:string, avatar:object, ready:boolean, ping:number, socketId:string }} Member
- * @typedef {{ code:string, leaderId:string, members:Member[], status:'lobby'|'playing', runner:MatchRunner|null }} Room
+ * @typedef {{ code:string, leaderId:string, members:Member[], status:'lobby'|'playing', mode:string, killGoal:number, runner:MatchRunner|MurderRunner|null }} Room
  */
 
 function newCode() {
@@ -55,18 +56,60 @@ function newCode() {
   }
 }
 
+const gameView = (state, viewerId) => (state.mode === MODE.MURDER ? murderView(state, viewerId) : viewFor(state, viewerId));
+
 function roomPayload(room, viewerId) {
   return {
     code: room.code,
     leaderId: room.leaderId,
     status: room.status,
+    mode: room.mode,
+    killGoal: room.killGoal,
     you: viewerId,
     members: room.members.map(({ id, name, avatar, ready, ping, isBot }) => ({ id, name, avatar, ready, ping, isBot: !!isBot })),
-    game: room.runner ? viewFor(room.runner.state, viewerId) : null,
+    game: room.runner ? gameView(room.runner.state, viewerId) : null,
   };
 }
 
 const humans = (room) => room.members.filter((m) => !m.isBot);
+
+/**
+ * Murder!: does this member get to know who did something right now? In the
+ * light everyone sees; in the dark only the dead and the murderer do (and everyone once it's over).
+ */
+function seesInDark(room, memberId, dark) {
+  const st = room.runner?.state;
+  if (!st || st.phase !== 'playing' || !dark) return true;
+  if (memberId === st.murdererId) return true; // the murderer sees in the dark
+  const pl = st.players.find((p) => p.id === memberId);
+  return !pl || !pl.alive;
+}
+
+/**
+ * A cock or a shot: everyone hears it, but in the dark the living only hear
+ * *that* it happened — not who, not at whom. The person who did it already
+ * played their own sound and isn't sent it back.
+ */
+function routeMurderEvent(room, e) {
+  if (e.type !== 'cock' && e.type !== 'shot') return;
+  const actor = e.type === 'cock' ? e.id : e.shooterId;
+  const dark = e.type === 'cock' ? room.runner.state.dark : e.dark;
+  for (const m of humans(room)) {
+    if (m.id === actor) continue;
+    const full = seesInDark(room, m.id, dark);
+    io.to(m.socketId).emit('murder:fx', full ? e : { type: e.type, dark: true });
+  }
+}
+
+/** Where a living player is looking: to everyone in the light; in the dark, to ghosts and the murderer. */
+function relayAim(room, msg) {
+  const st = room.runner?.state;
+  if (!st || st.mode !== MODE.MURDER) return;
+  for (const m of humans(room)) {
+    if (m.id === msg.id || !seesInDark(room, m.id, st.dark)) continue;
+    io.to(m.socketId).volatile.emit('aim:pose', msg);
+  }
+}
 
 function broadcast(room) {
   for (const m of humans(room)) io.to(m.socketId).emit('room:state', roomPayload(room, m.id));
@@ -116,7 +159,7 @@ io.on('connection', (socket) => {
 
   socket.on('room:create', (profile, cb) => {
     leave(socket);
-    const room = { code: newCode(), leaderId: socket.data.playerId, members: [], status: 'lobby', runner: null };
+    const room = { code: newCode(), leaderId: socket.data.playerId, members: [], status: 'lobby', mode: MODE.CLASSIC, killGoal: 4, runner: null };
     rooms.set(room.code, room);
     join(socket, room, profile || {});
     ack(cb, { ok: true, code: room.code });
@@ -128,7 +171,8 @@ io.on('connection', (socket) => {
     if (!room) return ack(cb, { ok: false, error: 'No room with that code.' });
     if (room.members.some((m) => m.id === socket.data.playerId)) return ack(cb, { ok: true, code: room.code });
     if (room.status !== 'lobby') return ack(cb, { ok: false, error: 'That match is already underway.' });
-    if (room.members.length >= MAX_PLAYERS) return ack(cb, { ok: false, error: 'Table is full (6 max).' });
+    const cap = limitsFor(room.mode).max;
+    if (room.members.length >= cap) return ack(cb, { ok: false, error: `Table is full (${cap} max).` });
     leave(socket);
     join(socket, room, profile);
     ack(cb, { ok: true, code: room.code });
@@ -152,8 +196,12 @@ io.on('connection', (socket) => {
     if (!room) return ack(cb, { ok: false, error: 'Not in a room.' });
     if (room.leaderId !== socket.data.playerId) return ack(cb, { ok: false, error: 'Only the party leader can start.' });
     if (room.status !== 'lobby') return ack(cb, { ok: false, error: 'Already playing.' });
-    if (room.members.length < MIN_PLAYERS) {
-      return ack(cb, { ok: false, error: `Need at least ${MIN_PLAYERS} players. Add a bot or invite a friend.` });
+    const lim = limitsFor(room.mode);
+    if (room.members.length < lim.min) {
+      return ack(cb, { ok: false, error: `Need at least ${lim.min} players. Add a bot or invite a friend.` });
+    }
+    if (room.members.length > lim.max) {
+      return ack(cb, { ok: false, error: `This mode seats ${lim.max} at most. Remove a bot or pick Murder!.` });
     }
     const notReady = room.members.filter((m) => m.id !== room.leaderId && !m.ready);
     if (notReady.length) return ack(cb, { ok: false, error: `Waiting on: ${notReady.map((m) => m.name).join(', ')}` });
@@ -161,6 +209,10 @@ io.on('connection', (socket) => {
     const players = room.members.map(({ id, name, avatar, isBot }) => ({ id, name, avatar, isBot }));
 
     room.status = 'playing';
+    if (room.mode === MODE.MURDER) {
+      startMurder(room, players);
+      return ack(cb, { ok: true });
+    }
     // Test-only overrides (unset in normal play): a fixed roll sequence like
     // "0,1" (0 = empty, 1 = loaded), the bots' decision, and who shoots first.
     const testRolls = process.env.GUN_TEST_ROLLS?.split(',').map((x) => x.trim() === '1');
@@ -182,12 +234,23 @@ io.on('connection', (socket) => {
   socket.on('room:addBot', (_opts, cb) => {
     const room = roomOf();
     if (!room || room.leaderId !== socket.data.playerId || room.status !== 'lobby') return ack(cb, { ok: false });
-    if (room.members.length >= MAX_PLAYERS) return ack(cb, { ok: false, error: 'Table is full (6 max).' });
+    const cap = limitsFor(room.mode).max;
+    if (room.members.length >= cap) return ack(cb, { ok: false, error: `Table is full (${cap} max).` });
     const taken = new Set(room.members.map((m) => m.name));
     const bot = makeBot(`bot:${room.code}:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, Math.random, taken);
     room.members.push({ ...bot, ready: true, ping: 0, socketId: null });
     broadcast(room);
     ack(cb, { ok: true });
+  });
+
+  // Leader picks the mode (and, for Murder!, how many bodies the murderer needs).
+  socket.on('room:settings', ({ mode, killGoal } = {}) => {
+    const room = roomOf();
+    if (!room || room.leaderId !== socket.data.playerId || room.status !== 'lobby') return;
+    if (mode === MODE.CLASSIC || mode === MODE.MURDER) room.mode = mode;
+    const g = Math.round(Number(killGoal));
+    if (Number.isFinite(g)) room.killGoal = Math.min(MURDER.goalMax, Math.max(MURDER.goalMin, g));
+    broadcast(room);
   });
 
   socket.on('room:removeBot', ({ id } = {}) => {
@@ -213,9 +276,40 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Murder!: click one cocks, click two fires at whoever is in your sights.
+  const murderRunner = () => {
+    const r = roomOf()?.runner;
+    return r instanceof MurderRunner ? r : null;
+  };
+  const murderAct = (fn) => {
+    const r = murderRunner();
+    return r ? fn(r) : 'no-match';
+  };
+  socket.on('game:cock', (_x, cb) => {
+    const err = murderAct((r) => r.cock(socket.data.playerId));
+    ack(cb, err ? { ok: false, error: err } : { ok: true });
+  });
+  socket.on('game:lower', (_x, cb) => {
+    const err = murderAct((r) => r.lower(socket.data.playerId));
+    ack(cb, err ? { ok: false, error: err } : { ok: true });
+  });
+  socket.on('game:shoot', ({ targetId } = {}, cb) => {
+    const t = typeof targetId === 'string' ? targetId : null;
+    const err = murderAct((r) => r.shoot(socket.data.playerId, t));
+    ack(cb, err ? { ok: false, error: err } : { ok: true });
+  });
+  socket.on('aim:pose', ({ yaw, pitch } = {}) => {
+    const room = roomOf();
+    const st = murderRunner()?.state;
+    const me = st?.players.find((x) => x.id === socket.data.playerId);
+    if (!me || !me.alive || st.phase !== 'playing') return;
+    if (!Number.isFinite(yaw) || !Number.isFinite(pitch) || Math.abs(yaw) > 10 || Math.abs(pitch) > 2) return;
+    relayAim(room, { id: me.id, yaw, pitch });
+  });
+
   socket.on('game:action', ({ action } = {}, cb) => {
     const room = roomOf();
-    if (!room?.runner) return ack(cb, { ok: false, error: 'No match.' });
+    if (!room?.runner?.act) return ack(cb, { ok: false, error: 'No match.' });
     const err = room.runner.act(socket.data.playerId, action);
     ack(cb, err ? { ok: false, error: err } : { ok: true });
   });
@@ -251,6 +345,31 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => leave(socket));
 });
+
+/** Murder!: pick the murderer, start the lights clock and the bots. */
+function startMurder(room, players) {
+  // Test-only overrides: who the murderer is ('first' | 'last' | 'leader' | seat index), and
+  // a different lights clock as "firstMs,gapMs,darkMs".
+  const want = process.env.GUN_TEST_MURDERER;
+  const pickTest = /^\d+$/.test(want || '') ? players[Number(want)]?.id : { first: players[0].id, last: players[players.length - 1].id, leader: room.leaderId }[want];
+  const [first, gap, dark] = (process.env.GUN_TEST_DARK || '').split(',').map(Number);
+  room.runner = new MurderRunner({
+    players,
+    killGoal: clampGoal(room.killGoal, players.length),
+    murdererId: pickTest,
+    first: first || undefined,
+    gap: gap || undefined,
+    dark: dark || undefined,
+    onChange: () => broadcast(room),
+    onEvent: (e) => {
+      routeMurderEvent(room, e);
+      room.botDriver?.event(e);
+    },
+  });
+  room.botDriver = createMurderBotDriver(room.runner, { aim: (id, a) => relayAim(room, { id, ...a }) });
+  room.runner.start();
+  room.botDriver.start();
+}
 
 /**
  * Listen on `port` (all interfaces, so LAN friends can join). If it's taken —

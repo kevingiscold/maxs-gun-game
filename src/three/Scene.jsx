@@ -7,12 +7,13 @@ import * as THREE from 'three';
 import { useStore } from '../store.js';
 import { Room } from './Room.jsx';
 import { Avatar, Chair } from './Avatar.jsx';
-import { Revolver } from './Revolver.jsx';
+import { Revolver, PlayerGun } from './Revolver.jsx';
 import { FeedScreens } from './FeedScreens.jsx';
 import { Ghosts, clearGhosts } from './Ghosts.jsx';
 import { takeMouse, unlockPointer, held } from './input.js';
 import { session } from '../net/session.js';
-import { LOCAL, seat, seatPoint } from './layout.js';
+import { LOCAL, TABLE_HEIGHT, seat, seatPoint } from './layout.js';
+import { lookDir, pickTarget, sights } from './murder.js';
 import { avatarPose, flinching, gunPose, lookTarget, seatIndexMap, visiblyAlive } from './choreo.js';
 import { fx } from './fx.js';
 import { sfx } from '../audio/sfx.js';
@@ -66,7 +67,12 @@ function SeatedPlayer({ player, index, n }) {
     if (f !== flinch) setFlinch(f);
     if (g) {
       const idx = seatIndexMap(g.players);
-      const got = lookTarget(player, g, idx, g.players.length, look.current);
+      let got;
+      if (g.mode === 'murder') {
+        // Murder!: heads turn to wherever that player is actually looking.
+        const d = player.id !== st.myId && lookDir(player.id, idx, g.players.length, _lookDir);
+        got = d && seatPoint(index, g.players.length, LOCAL.eye, look.current).addScaledVector(d, 2);
+      } else got = lookTarget(player, g, idx, g.players.length, look.current);
       if (!!got !== hasLook) setHasLook(!!got);
     }
   });
@@ -91,6 +97,8 @@ function SeatedPlayer({ player, index, n }) {
     </group>
   );
 }
+
+const _lookDir = new THREE.Vector3();
 
 function EmptyChairs({ n = 4 }) {
   return Array.from({ length: n }, (_, i) => {
@@ -151,6 +159,56 @@ function GunController({ players }) {
       }}
     />
   );
+}
+
+const UP = new THREE.Vector3(0, 1, 0);
+
+/**
+ * Murder!: one gun per player. Lowered over the table edge in their hand;
+ * raised along where they're looking once the hammer is back (so a cocked gun
+ * is something everyone can see in the light); dropped on the table when they die.
+ */
+function MurderGun({ id }) {
+  const { camera } = useThree();
+  const v = useMemo(() => ({ pos: new THREE.Vector3(), at: new THREE.Vector3(), dir: new THREE.Vector3(), right: new THREE.Vector3(), rot: new THREE.Euler() }), []);
+  const getPose = () => {
+    const st = useStore.getState();
+    const g = st.screen === 'game' ? st.game : null;
+    if (!g || g.mode !== 'murder') return null;
+    const idx = seatIndexMap(g.players);
+    const i = idx.get(id);
+    if (i === undefined) return null;
+    const n = g.players.length;
+    if (!g.players[i].alive) {
+      seatPoint(i, n, v.at.set(-0.15, TABLE_HEIGHT + 0.035, 0.62), v.pos);
+      return { position: v.pos, rotation: v.rot.set(0, seat(i, n).rotY + 2.2, Math.PI / 2), holderId: null };
+    }
+    const me = id === st.myId;
+    const cocked = g.phase === 'playing' && (me ? st.myCocked : !!g.cocked?.[id]);
+    if (!cocked) {
+      seatPoint(i, n, LOCAL.handLow, v.pos);
+      return { position: v.pos, lookAt: v.at.set(0, TABLE_HEIGHT - 0.4, 0), holderId: id };
+    }
+    const firstPerson = me && st.firstPersonId === id;
+    if (firstPerson) {
+      v.at.copy(camera.position);
+      camera.getWorldDirection(v.dir);
+    } else {
+      seatPoint(i, n, LOCAL.eye, v.at);
+      if (!lookDir(id, idx, n, v.dir)) v.dir.set(-v.at.x, TABLE_HEIGHT + 0.3 - v.at.y, -v.at.z).normalize();
+    }
+    v.right.crossVectors(v.dir, UP).normalize();
+    // in your own view it sits low and to the right, out of the crosshair's way
+    if (firstPerson) v.pos.copy(v.at).addScaledVector(v.dir, 0.5).addScaledVector(v.right, 0.22).addScaledVector(UP, -0.2);
+    else v.pos.copy(v.at).addScaledVector(v.dir, 0.42).addScaledVector(v.right, 0.15).addScaledVector(UP, -0.12);
+    v.at.addScaledVector(v.dir, 8);
+    return { position: v.pos, lookAt: v.at, holderId: id, cocked: true, fast: firstPerson };
+  };
+  return <PlayerGun playerId={id} getPose={getPose} />;
+}
+
+function MurderGuns({ players }) {
+  return players.map((p) => <MurderGun key={p.id} id={p.id} />);
 }
 
 /** Plays sounds and sets fx timestamps at fixed offsets into each phase. */
@@ -250,7 +308,7 @@ const MOUSE = 0.0022;
  */
 function CameraRig() {
   const { camera } = useThree();
-  const rig = useRef({ mode: '', offYaw: 0, offPitch: 0, baseYaw: 0, basePitch: 0, duelKey: '', recenter: 0, ghost: new THREE.Vector3(), gYaw: 0, gPitch: 0, sentAt: 0 });
+  const rig = useRef({ mode: '', offYaw: 0, offPitch: 0, baseYaw: 0, basePitch: 0, duelKey: '', recenter: 0, ghost: new THREE.Vector3(), gYaw: 0, gPitch: 0, sentAt: 0, aimSentAt: 0 });
 
   useFrame((state, delta) => {
     const st = useStore.getState();
@@ -319,7 +377,7 @@ function CameraRig() {
       // What your eyes are drawn to: your opponent, or the person being aimed at.
       if (inDuel) seatPoint(idx.get(me.id === sId ? tId : sId), n, LOCAL.head, _look);
       else if (tId != null && idx.has(tId)) seatPoint(idx.get(tId), n, LOCAL.head, _look);
-      else _look.set(0, 0.95, 0);
+      else _look.set(0, g.mode === 'murder' ? 1.3 : 0.95, 0); // Murder!: eyes level with the table, not down at the felt
       seatPoint(myIdx, n, LOCAL.eye, _pos);
       _dir.subVectors(_look, _pos);
       const wantYaw = yawTo(_dir);
@@ -348,6 +406,7 @@ function CameraRig() {
 
       // Nerves: a tremor that builds through the stare and the trigger squeeze.
       let nerve = 0.15;
+      if (g.mode === 'murder' && st.myCocked) nerve = 0.45;
       if (inDuel && g.phase === PHASE.DECISION) nerve = 0.2 + Math.min(1, el / 25000) * 0.8;
       if (inDuel && g.phase === PHASE.RESOLVING && el < TIMING.trigger) nerve = 1 + (el / TIMING.trigger) * 1.5;
       const o = g.result?.outcome;
@@ -362,8 +421,19 @@ function CameraRig() {
       camera.quaternion.setFromEuler(_euler);
       _pos.y += Math.sin(t * 1.5) * 0.004; // breathing
       camera.position.copy(_pos).add(_v);
+      fx.cam.pos.copy(camera.position);
+      fx.cam.yaw = yaw;
+      if (g.mode === 'murder') {
+        // who's under the crosshair, and where you're looking for everyone else
+        sights.targetId = g.phase === PHASE.GAMEOVER ? null : pickTarget(camera, g, st.myId);
+        if (performance.now() - r.aimSentAt > 100 && g.phase !== PHASE.GAMEOVER) {
+          r.aimSentAt = performance.now();
+          session.sendAim(+wrap(yaw).toFixed(3), +pitch.toFixed(3));
+        }
+      }
       return;
     }
+    sights.targetId = null;
 
     if (next === 'ghost') {
       r.gYaw -= mouse.x * sens;
@@ -384,6 +454,8 @@ function CameraRig() {
       }
       r.ghost.y = THREE.MathUtils.clamp(r.ghost.y, 0.25, 3.8);
       camera.position.copy(r.ghost).add(_v);
+      fx.cam.pos.copy(r.ghost);
+      fx.cam.yaw = r.gYaw;
       _euler.set(r.gPitch, r.gYaw, Math.sin(t * 0.7) * 0.02, 'YXZ'); // a slow, weightless sway
       camera.quaternion.setFromEuler(_euler);
       if (performance.now() - r.sentAt > 100) {
@@ -410,6 +482,8 @@ function CameraRig() {
     const k = 1 - Math.exp(-dt * speed);
     camera.position.lerp(_pos, k);
     camera.lookAt(_look);
+    fx.cam.pos.copy(camera.position);
+    fx.cam.yaw = _euler.setFromQuaternion(camera.quaternion, 'YXZ').y;
   });
   return null;
 }
@@ -450,6 +524,7 @@ export function SceneCanvas() {
   const players = useTablePlayers();
   const ghost = useStore((s) => s.ghost);
   const quality = useStore((s) => s.settings.quality);
+  const murder = useStore((s) => s.screen === 'game' && s.game?.mode === 'murder');
   // Render resolution adapts to the frame rate (PerformanceMonitor below).
   // Resolution follows a pixel budget, not the screen's scaling factor: a big
   // window on a laptop GPU otherwise renders 2.5M+ pixels a frame.
@@ -479,7 +554,7 @@ export function SceneCanvas() {
         ) : (
           <EmptyChairs />
         )}
-        <GunController players={players} />
+        {murder ? <MurderGuns players={players} /> : <GunController players={players} />}
       </Suspense>
       <TargetLight />
       <FeedScreens />

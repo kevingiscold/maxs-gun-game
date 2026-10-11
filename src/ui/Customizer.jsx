@@ -4,7 +4,7 @@ import { OrbitControls, ContactShadows } from '@react-three/drei';
 import { useStore } from '../store.js';
 import { session } from '../net/session.js';
 import { Avatar } from '../three/Avatar.jsx';
-import { AVATAR_OPTIONS, DEFAULT_AVATAR, randomAvatar } from '../../shared/avatar.js';
+import { AVATAR_OPTIONS, DEFAULT_AVATAR, ACCESSORIES, ACCESSORY_SLOTS, randomAvatar, toggleAccessory } from '../../shared/avatar.js';
 
 const LABELS = {
   skin: 'Skin tone',
@@ -15,7 +15,6 @@ const LABELS = {
   hair: 'Hair',
   hairColor: 'Hair colour',
   facialHair: 'Facial hair',
-  accessory: 'Accessory',
   shirt: 'Shirt',
 };
 const isColor = (v) => typeof v === 'string' && v.startsWith('#');
@@ -33,6 +32,28 @@ function Preview({ avatar }) {
       <ContactShadows position={[0, 0.001, 0]} opacity={0.6} scale={3} blur={2.4} />
       <OrbitControls target={[0, 1.15, 0]} minDistance={0.6} maxDistance={3.2} enablePan={false} />
     </Canvas>
+  );
+}
+
+const SLOT_NAMES = { head: 'head', eyes: 'eyes', mouth: 'mouth' };
+
+/** Wear several at once; picking one for a place that's taken swaps it. */
+function AccessoryPicker({ list, onChange }) {
+  return (
+    <div className="opt">
+      <div className="opt-label">Accessories</div>
+      <div className="opt-values">
+        <button className={`chip ${list.length ? '' : 'on'}`} onClick={() => onChange([])}>
+          none
+        </button>
+        {ACCESSORIES.map((v) => (
+          <button key={v} className={`chip ${list.includes(v) ? 'on' : ''}`} onClick={() => onChange(toggleAccessory(list, v))} title={`Worn on the ${SLOT_NAMES[ACCESSORY_SLOTS[v]]}`}>
+            {v}
+          </button>
+        ))}
+      </div>
+      <div className="opt-note">One per place: head, eyes, mouth.</div>
+    </div>
   );
 }
 
@@ -62,7 +83,9 @@ export function Customizer() {
           <input value={profile.name} maxLength={16} placeholder="Stranger" onChange={(e) => setProfile({ name: e.target.value })} />
         </label>
         {Object.entries(AVATAR_OPTIONS).map(([key, list]) => (
-          <div className="opt" key={key}>
+          <React.Fragment key={key}>
+          {key === 'shirt' && <AccessoryPicker list={a.accessories || []} onChange={(v) => set('accessories', v)} />}
+          <div className="opt">
             <div className="opt-label">{LABELS[key]}</div>
             <div className="opt-values">
               {list.map((v) =>
@@ -82,6 +105,7 @@ export function Customizer() {
               )}
             </div>
           </div>
+          </React.Fragment>
         ))}
         <div className="row">
           <button className="btn" onClick={() => setProfile({ avatar: randomAvatar() })}>

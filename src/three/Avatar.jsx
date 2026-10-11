@@ -252,41 +252,160 @@ function Hair({ type, color }) {
   }
 }
 
-function FacialHair({ type, color }) {
-  const mustache = (
-    <mesh position={[0, -0.043, 0.14]}>
-      <boxGeometry args={[0.075, 0.016, 0.02]} />
-      <Mat color={color} rough={1} />
-    </mesh>
+// The head is a sphere of radius 0.15 squashed by HEAD_SCALE. Facial hair is
+// built in that same squashed space so it hugs the face instead of floating off
+// it or sinking in.
+const HEAD_SCALE = [0.95, 1.05, 0.98];
+const HEAD_R = 0.15;
+
+// Facial hair coverage, as sphere angles: theta runs down from the crown; phi
+// runs round the head, 0 at one ear, PI/2 at the nose, PI at the other ear.
+const JAW = {
+  ear: PI * 0.45, // where the beard line meets the sideburns
+  corner: PI * 0.615, // level with the moustache tips, at the corners of the mouth
+  underLip: PI * 0.685, // the bare gap under the lower lip
+  chin: PI * 0.97, // under the chin
+  gap: 0.11, // half-width of that gap (radians of phi): about the lips' width
+  blend: 0.12, // how quickly the line drops from the corners to under the lip
+};
+
+const smooth = (k) => k * k * (3 - 2 * k);
+/** Top edge of the beard at angle phi: high by the ears, sloping down to the moustache, a small gap under the lip. */
+function beardTop(phi) {
+  const d = Math.abs(phi - PI / 2);
+  if (d <= JAW.gap) return JAW.underLip;
+  if (d <= JAW.gap + JAW.blend) return JAW.underLip + (JAW.corner - JAW.underLip) * smooth((d - JAW.gap) / JAW.blend);
+  // up the cheek: climbs quickly from the moustache tips, then levels off to the sideburns
+  const k = Math.min(1, (d - JAW.gap - JAW.blend) / (PI / 2 - JAW.gap - JAW.blend));
+  return JAW.corner + (JAW.ear - JAW.corner) * Math.pow(k, 0.55);
+}
+
+const jawCache = new Map();
+/**
+ * The jaw: ear to ear across the front, from the beard line down under the
+ * chin. A sphere patch of radius R whose top edge follows beardTop(). uv.v runs
+ * 1 at the beard line to 0 under the chin.
+ */
+function jawGeometry(R) {
+  if (jawCache.has(R)) return jawCache.get(R);
+  const cols = 56;
+  const rows = 14;
+  const pos = [];
+  const nrm = [];
+  const uv = [];
+  for (let j = 0; j <= rows; j++) {
+    for (let i = 0; i <= cols; i++) {
+      const phi = (i / cols) * PI;
+      const top = beardTop(phi);
+      const theta = top + ((JAW.chin - top) * j) / rows;
+      const x = -Math.cos(phi) * Math.sin(theta);
+      const y = Math.cos(theta);
+      const z = Math.sin(phi) * Math.sin(theta);
+      pos.push(R * x, R * y, R * z);
+      nrm.push(x, y, z);
+      uv.push(i / cols, 1 - j / rows);
+    }
+  }
+  const index = [];
+  const at = (i, j) => j * (cols + 1) + i;
+  for (let j = 0; j < rows; j++) {
+    for (let i = 0; i < cols; i++) {
+      const a = at(i + 1, j);
+      const b = at(i, j);
+      const c = at(i, j + 1);
+      const d = at(i + 1, j + 1);
+      index.push(a, b, d, b, c, d);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(index);
+  jawCache.set(R, g);
+  return g;
+}
+
+let stubbleTex = null;
+/**
+ * Fine dots, used as an alpha map: reads as stubble, not a painted-on shadow.
+ * They thin out towards the top (the beard line) so there's no hard edge.
+ */
+function stubbleAlpha() {
+  if (stubbleTex) return stubbleTex;
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#000';
+  g.fillRect(0, 0, c.width, c.height);
+  for (let i = 0; i < 30000; i++) {
+    const y = Math.random() * c.height;
+    const fade = Math.min(1, y / (c.height * 0.3)); // canvas top = beard line
+    if (Math.random() > fade) continue;
+    g.fillStyle = `rgba(255,255,255,${0.35 + Math.random() * 0.65})`;
+    g.fillRect(Math.random() * c.width, y, 1, 1 + (Math.random() < 0.3 ? 1 : 0));
+  }
+  stubbleTex = new THREE.CanvasTexture(c);
+  return stubbleTex;
+}
+
+/** The jaw shell standing `r` times the head radius off the skin, in the head's own (squashed) space. */
+function JawShell({ r, children }) {
+  return (
+    <group scale={HEAD_SCALE}>
+      <mesh geometry={jawGeometry(+(HEAD_R * r).toFixed(5))}>{children}</mesh>
+    </group>
   );
+}
+
+/** A chevron moustache: two full, rounded halves that follow the face and droop at the ends. */
+function Mustache({ color }) {
+  return [-1, 1].map((s) => (
+    <group key={s} position={[s * 0.027, -0.047, 0.142]} rotation={[0, s * 0.5, 0]}>
+      <mesh rotation={[0, 0, s * (PI / 2 - 0.3)]} scale={[1, 1, 0.75]}>
+        <capsuleGeometry args={[0.0115, 0.032, 4, 10]} />
+        <Mat color={color} rough={1} />
+      </mesh>
+    </group>
+  ));
+}
+
+function FacialHair({ type, color }) {
+  const tex = useMemo(() => (type === 'stubble' ? stubbleAlpha() : null), [type]);
   switch (type) {
     case 'stubble':
       return (
-        <mesh>
-          <sphereGeometry args={[0.1525, 24, 16, 0, PI * 2, PI * 0.56, PI * 0.3]} />
-          <Mat color={color} transparent opacity={0.45} rough={1} />
-        </mesh>
+        <JawShell r={1.012}>
+          <meshStandardMaterial color={color} roughness={1} alphaMap={tex} transparent opacity={0.9} depthWrite={false} side={THREE.DoubleSide} />
+        </JawShell>
       );
     case 'mustache':
-      return mustache;
+      return <Mustache color={color} />;
     case 'goatee':
       return (
         <>
-          {mustache}
-          <mesh position={[0, -0.112, 0.118]}>
-            <boxGeometry args={[0.04, 0.05, 0.03]} />
+          <Mustache color={color} />
+          {/* a patch hugging the point of the chin, under the lower lip, with a little point */}
+          <mesh position={[0, -0.122, 0.098]} rotation={[-0.75, 0, 0]} scale={[1.2, 1, 0.7]}>
+            <coneGeometry args={[0.03, 0.05, 12]} />
             <Mat color={color} rough={1} />
           </mesh>
+          <group scale={HEAD_SCALE}>
+            <mesh>
+              <sphereGeometry args={[HEAD_R * 1.06, 14, 8, PI / 2 - 0.34, 0.68, JAW.underLip, PI * 0.86 - JAW.underLip]} />
+              <Mat color={color} rough={1} side={THREE.DoubleSide} />
+            </mesh>
+          </group>
         </>
       );
     case 'beard':
       return (
         <>
-          {mustache}
-          <mesh scale={[1.04, 1.08, 1.05]}>
-            <sphereGeometry args={[0.152, 24, 16, 0, PI * 2, PI * 0.64, PI * 0.36]} />
-            <Mat color={color} rough={1} />
-          </mesh>
+          <Mustache color={color} />
+          <JawShell r={1.07}>
+            <Mat color={color} rough={1} side={THREE.DoubleSide} />
+          </JawShell>
         </>
       );
     default:
@@ -378,10 +497,11 @@ function Accessory({ type }) {
 
 export function Head({ config }) {
   const c = config;
+  const acc = c.accessories || [c.accessory];
   return (
     <>
-      <mesh castShadow scale={[0.95, 1.05, 0.98]}>
-        <sphereGeometry args={[0.15, 32, 24]} />
+      <mesh castShadow scale={HEAD_SCALE}>
+        <sphereGeometry args={[HEAD_R, 32, 24]} />
         <Mat color={c.skin} rough={0.55} />
       </mesh>
       {/* nose + ears */}
@@ -398,9 +518,11 @@ export function Head({ config }) {
       <Eyes shape={c.eyeShape} color={c.eyeColor} skin={c.skin} />
       <Brows type={c.brows} color={c.hairColor} />
       <Mouth type={c.mouth} />
-      {c.accessory === 'cap' ? <HairUnderCap type={c.hair} color={c.hairColor} /> : <Hair type={c.hair} color={c.hairColor} />}
+      {acc.includes('cap') ? <HairUnderCap type={c.hair} color={c.hairColor} /> : <Hair type={c.hair} color={c.hairColor} />}
       <FacialHair type={c.facialHair} color={c.hairColor} />
-      <Accessory type={c.accessory} />
+      {acc.map((a) => (
+        <Accessory key={a} type={a} />
+      ))}
     </>
   );
 }
@@ -556,12 +678,14 @@ export function Avatar({ config, pose = 'rest', lookAt = null, flinch = false, c
 
     // Right arm: when this player holds the gun, the hand goes to the grip
     // (the gun publishes its grip position every frame), blended in and out.
-    const holding = !dead && playerId != null && fx.gripHolder === playerId;
+    const grip = playerId == null ? null : fx.gripHolder === playerId ? fx.grip : fx.grips.get(playerId);
+    const holding = !dead && !!grip;
     ik.w += ((holding ? 1 : 0) - ik.w) * Math.min(1, dt * 7);
     _qRest.setFromEuler(_e.set(sx, 0, sz));
     if (ik.w > 0.001) {
       body.current.updateWorldMatrix(true, false);
-      ik.local.copy(fx.grip);
+      if (grip) ik.local.copy(grip);
+      else ik.local.copy(fx.grip);
       body.current.worldToLocal(ik.local);
       solveArm(armR.current.position, ik.local, -1, ik.qs, _qIk);
       armR.current.quaternion.copy(_qRest).slerp(ik.qs, ik.w);

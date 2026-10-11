@@ -233,16 +233,21 @@ export const sfx = {
 
   /**
    * The gunshot: saturated, as loud as the output allows, a long room tail, then
-   * deafness and ringing. `close` = you were the shooter or target.
+   * deafness and ringing. `close` = you were the shooter or target. `pan`
+   * (-1 left … 1 right) places it in the room; 0 = from no direction at all.
    */
-  bang({ close = true } = {}) {
+  bang({ close = true, pan = 0 } = {}) {
     ac();
     const t = ctx.currentTime;
     sfx.stopRiser();
     const vol = useStore.getState().settings.volume;
     const bus = ctx.createGain();
     bus.gain.value = 2.6 * vol;
-    bus.connect(blastLimiter);
+    if (pan) {
+      const p = ctx.createStereoPanner();
+      p.pan.value = Math.max(-1, Math.min(1, pan));
+      bus.connect(p).connect(blastLimiter);
+    } else bus.connect(blastLimiter);
     const drive = shaper(7);
     drive.connect(bus);
     const verb = ctx.createGain();
@@ -262,13 +267,41 @@ export const sfx = {
     shellShock(t + 0.03, close);
   },
 
-  /** The gun made ready: one loud, hard, metallic click that rings out in the room. */
-  cock() {
+  /**
+   * The gun made ready: one loud, hard, metallic click that rings out in the room.
+   * `pan` places someone else's click (-1 left … 1 right); `level` < 1 for theirs.
+   */
+  cock({ pan = 0, level = 1 } = {}) {
     ac();
     const t = ctx.currentTime;
-    noiseBurst(t, 0.018, { type: 'bandpass', freq: 2300, q: 3, peak: 3.2, wet: 1.6 });
-    noiseBurst(t, 0.05, { type: 'bandpass', freq: 900, q: 5, peak: 1.4, wet: 1.2 });
-    tone(t, { freq: 3100, dur: 0.09, peak: 0.12, type: 'triangle', wet: 1 });
+    let through;
+    if (pan) {
+      through = ctx.createStereoPanner();
+      through.pan.value = Math.max(-1, Math.min(1, pan));
+      send(through, 1.4);
+    }
+    noiseBurst(t, 0.018, { type: 'bandpass', freq: 2300, q: 3, peak: 3.2 * level, wet: 1.6, through });
+    noiseBurst(t, 0.05, { type: 'bandpass', freq: 900, q: 5, peak: 1.4 * level, wet: 1.2, through });
+    tone(t, { freq: 3100, dur: 0.09, peak: 0.12 * level, type: 'triangle', wet: 1, through });
+  },
+
+  /** Murder!: the breaker trips. A heavy clunk and the room's hum dies. */
+  lightsOut() {
+    ac();
+    const t = ctx.currentTime;
+    noiseBurst(t, 0.06, { type: 'lowpass', freq: 900, peak: 2.4, wet: 1.6 });
+    tone(t, { freq: 110, endFreq: 40, dur: 0.35, peak: 1.4, wet: 0.8 });
+    tone(t, { freq: 120, endFreq: 30, dur: 0.6, peak: 0.25, type: 'sawtooth', wet: 0.3 }); // mains hum winding down
+  },
+
+  /** …and back: a clunk, then the bulb buzzing as it catches. */
+  lightsOn() {
+    ac();
+    const t = ctx.currentTime;
+    noiseBurst(t, 0.05, { type: 'lowpass', freq: 1200, peak: 1.8, wet: 1.4 });
+    for (const [at, len] of [[0.05, 0.08], [0.2, 0.05], [0.3, 0.5]]) {
+      tone(t + at, { freq: 100, dur: len, peak: 0.12, type: 'square', wet: 0.2 });
+    }
   },
 
   /** Rising dread under the trigger squeeze; cut dead by bang()/click(). */

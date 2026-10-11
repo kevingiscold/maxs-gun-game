@@ -6,8 +6,9 @@ import { Feeds, RemoteAudio } from './Feeds.jsx';
 import { FaceIcon } from './FaceIcon.jsx';
 import { PHASE, OUTCOME, TIMING } from '../../shared/constants.js';
 import { visiblyAlive } from '../three/choreo.js';
+import { MurderHud } from './MurderHud.jsx';
 
-function useTick(ms = 100) {
+export function useTick(ms = 100) {
   const [, set] = useState(0);
   useEffect(() => {
     const id = setInterval(() => set((x) => x + 1), ms);
@@ -158,7 +159,7 @@ function Narration({ game }) {
  * Who's at the table. Uses what's *visible* — the server already knows who dies
  * the moment the trigger is chosen, and showing that early spoils the shot.
  */
-function Roster({ game }) {
+export function Roster({ game }) {
   useTick(150);
   const el = elapsed();
   return (
@@ -172,6 +173,7 @@ function Roster({ game }) {
           >
             <FaceIcon avatar={p.avatar} size={30} dead={!alive} />
             <span>{p.name}</span>
+            {p.id === game.murdererId && <em className="roster-role">murderer</em>}
           </div>
         );
       })}
@@ -180,7 +182,7 @@ function Roster({ game }) {
 }
 
 /** Your own death: the screen goes black, then you're a spectator. */
-function DeathScreen() {
+export function DeathScreen() {
   useTick(100);
   const deathAt = useStore((s) => s.deathAt);
   if (!deathAt) return null;
@@ -257,6 +259,7 @@ export function Hud() {
   const micMuted = useMedia((s) => s.micMuted);
   const hasLocal = useMedia((s) => !!s.local);
   if (!game) return null;
+  if (game.mode === 'murder') return <MurderHud game={game} />;
 
   const me = game.players.find((p) => p.id === myId);
   const deciding = game.phase === PHASE.DECISION;

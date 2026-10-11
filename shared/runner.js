@@ -3,6 +3,7 @@
 
 import { PHASE, TIMING, LOAD_CHANCE } from './constants.js';
 import * as E from './engine.js';
+import * as M from './murder.js';
 
 export class MatchRunner {
   /**
@@ -73,5 +74,86 @@ export class MatchRunner {
       fn();
       this._afterChange();
     }, Math.max(0, when - this.now()));
+  }
+}
+
+/**
+ * Murder!: the only timer is the lights. Everything else happens when a player
+ * (or bot) cocks, lowers or fires. `onEvent` gets each cock / shot / lights
+ * change so the server can route sounds (with or without the shooter's name).
+ */
+export class MurderRunner {
+  constructor({ players, killGoal, murdererId, onChange, onEvent, first, gap, dark, now = () => Date.now() }) {
+    this.now = now;
+    const pick = murdererId ?? players[Math.floor(Math.random() * players.length)].id;
+    this.state = M.createMurder(players, { killGoal, murdererId: pick, now: now(), first, gap, dark });
+    this.onChange = onChange;
+    this.onEvent = onEvent;
+    this.timer = null;
+  }
+
+  start() {
+    this._schedule();
+    this._emit();
+  }
+
+  cock(id) {
+    const err = M.cock(this.state, id);
+    if (!err) {
+      this.onEvent?.({ type: 'cock', id });
+      this._emit();
+    }
+    return err;
+  }
+
+  lower(id) {
+    const err = M.lower(this.state, id);
+    if (!err) this._emit();
+    return err;
+  }
+
+  shoot(id, targetId) {
+    const res = M.shoot(this.state, id, targetId, this.now());
+    if (res.error) return res.error;
+    this.onEvent?.({ type: 'shot', ...res.event });
+    this._afterChange();
+    return null;
+  }
+
+  removePlayer(id) {
+    M.forfeitMurder(this.state, id, this.now());
+    this._afterChange();
+  }
+
+  dispose() {
+    clearTimeout(this.timer);
+    this.timer = null;
+    this.onChange = null;
+    this.onEvent = null;
+  }
+
+  _emit() {
+    this.onChange?.(this.state);
+  }
+
+  _afterChange() {
+    if (this.state.phase !== M.MURDER_PHASE.PLAYING) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    this._emit();
+  }
+
+  _schedule() {
+    clearTimeout(this.timer);
+    const s = this.state;
+    if (s.phase !== M.MURDER_PHASE.PLAYING) return;
+    this.timer = setTimeout(() => {
+      if (this.state.phase !== M.MURDER_PHASE.PLAYING) return;
+      M.setDark(s, !s.dark);
+      this.onEvent?.({ type: 'lights', dark: s.dark });
+      this._schedule();
+      this._emit();
+    }, Math.max(0, s.nextAt - this.now()));
   }
 }

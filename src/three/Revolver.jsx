@@ -1,8 +1,9 @@
 // Revolver built from an extruded side profile. Barrel points along local +z so
 // Object3D.lookAt aims it.
-import React, { useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { fx } from './fx.js';
 import { usePBR } from './materials.js';
 
@@ -199,6 +200,126 @@ export function Revolver({ getPose }) {
     <group ref={group}>
       <RevolverModel drumRef={drum} flashRef={flash} hammerRef={hammer} />
       <pointLight ref={light} position={[0, 0.03, 0.4]} color="#ffb060" distance={7} decay={2} intensity={0} />
+    </group>
+  );
+}
+
+// ---------- Murder!: one gun per player ----------
+
+/** Bake a part into one non-indexed geometry so the whole steel body is a single draw call. */
+function part(geo, pos = [0, 0, 0], rot = [0, 0, 0]) {
+  const g = geo.index ? geo.toNonIndexed() : geo.clone();
+  const m = new THREE.Matrix4().compose(new THREE.Vector3(...pos), new THREE.Quaternion().setFromEuler(new THREE.Euler(...rot)), new THREE.Vector3(1, 1, 1));
+  return g.applyMatrix4(m);
+}
+let liteSteel = null;
+function liteSteelGeometry() {
+  if (liteSteel) return liteSteel;
+  liteSteel = mergeGeometries([
+    part(FRAME),
+    part(new THREE.CylinderGeometry(0.0105, 0.012, 0.17, 12), [0, 0.014, 0.135], [PI / 2, 0, 0]),
+    part(new THREE.BoxGeometry(0.008, 0.007, 0.17), [0, 0.025, 0.13]),
+    part(new THREE.CylinderGeometry(0.0062, 0.0062, 0.12, 8), [0, -0.003, 0.11], [PI / 2, 0, 0]),
+    part(new THREE.BoxGeometry(0.003, 0.009, 0.012), [0, 0.031, 0.212]),
+    part(new THREE.CylinderGeometry(0.03, 0.03, 0.058, 16), [0, 0.004, 0.025], [PI / 2, 0, 0]),
+    part(new THREE.TorusGeometry(0.022, 0.0035, 6, 12, PI), [0, -0.03, 0.006], [0, PI / 2, 0]),
+    part(TRIGGER, [0, -0.012, 0.008]),
+  ]);
+  return liteSteel;
+}
+
+const liteMats = {};
+function liteMaterials() {
+  if (!liteMats.steel) {
+    liteMats.steel = new THREE.MeshStandardMaterial({ color: '#24262b', metalness: 1, roughness: 0.3 });
+    liteMats.grip = new THREE.MeshStandardMaterial({ color: '#6a3a1e', roughness: 0.5 });
+    liteMats.flash = new THREE.MeshBasicMaterial({ color: '#ffd27a', transparent: true, opacity: 0.9, toneMapped: false, side: THREE.DoubleSide });
+    liteMats.core = new THREE.MeshBasicMaterial({ color: '#fff6d0', toneMapped: false });
+  }
+  return liteMats;
+}
+
+/**
+ * A cheaper revolver (three draw calls) for Murder!, where everyone at the
+ * table holds one. Same silhouette; the hammer still moves so a cocked gun reads.
+ */
+export function RevolverLite({ hammerRef, flashRef }) {
+  const geo = liteSteelGeometry();
+  const m = liteMaterials();
+  return (
+    <group scale={1.35}>
+      <mesh geometry={geo} material={m.steel} />
+      <mesh geometry={GRIP} material={m.grip} />
+      <group ref={hammerRef} position={[0, 0.018, -0.05]}>
+        <mesh geometry={HAMMER} material={m.steel} />
+      </group>
+      <group ref={flashRef} position={[0, 0.014, 0.23]} scale={1e-4}>
+        <mesh rotation={[PI / 2, 0, 0]} position={[0, 0, 0.06]} material={m.flash}>
+          <coneGeometry args={[0.055, 0.16, 10, 1, true]} />
+        </mesh>
+        <mesh material={m.core}>
+          <sphereGeometry args={[0.045, 8, 6]} />
+        </mesh>
+      </group>
+    </group>
+  );
+}
+
+/**
+ * One player's gun in Murder!. `getPose()` returns { position, lookAt|rotation,
+ * cocked, holderId, fast } every frame; the gun follows it, kicks when that
+ * player fires, and tells their arm where the grip is.
+ */
+export function PlayerGun({ playerId, getPose }) {
+  const group = useRef();
+  const hammer = useRef();
+  const flash = useRef();
+  const base = useMemo(() => new THREE.Quaternion(), []);
+  const placed = useRef(false);
+
+  useFrame((_, delta) => {
+    const dt = Math.min(delta, 0.05);
+    const pose = getPose();
+    const g = group.current;
+    if (!pose || !g) {
+      if (g) g.visible = false;
+      fx.grips.delete(playerId);
+      return;
+    }
+    g.visible = true;
+    _target.position.copy(pose.position);
+    if (pose.lookAt) _target.lookAt(pose.lookAt);
+    else if (pose.rotation) _target.rotation.copy(pose.rotation);
+    const k = placed.current ? 1 - Math.exp(-dt * (pose.fast ? 18 : 7)) : 1;
+    placed.current = true;
+    g.position.lerp(_target.position, k);
+    base.slerp(_target.quaternion, k);
+
+    const now = performance.now();
+    const since = now - (fx.shots.get(playerId) ?? -1e9);
+    const kick = since < 400 ? Math.exp(-since / 90) * 0.6 : 0;
+    _kick.setFromAxisAngle(_xAxis, -kick);
+    g.quaternion.copy(base).multiply(_kick);
+
+    if (pose.holderId) fx.grips.set(playerId, (fx.grips.get(playerId) || new THREE.Vector3()).copy(GRIP_LOCAL).applyQuaternion(g.quaternion).add(g.position));
+    else fx.grips.delete(playerId);
+
+    if (hammer.current) {
+      const want = pose.cocked && since > 120 ? -0.7 : 0;
+      hammer.current.rotation.x += (want - hammer.current.rotation.x) * (want ? 1 - Math.exp(-dt * 30) : 1);
+    }
+    // Always "visible", just shrunk to nothing between shots: its shaders compile
+    // up front instead of stalling the frame of someone's first shot.
+    const firing = since < 60;
+    flash.current.scale.setScalar(firing ? 1 : 1e-4);
+    if (firing) flash.current.rotation.z = Math.random() * PI;
+  });
+
+  useEffect(() => () => fx.grips.delete(playerId), [playerId]);
+
+  return (
+    <group ref={group} visible={false}>
+      <RevolverLite hammerRef={hammer} flashRef={flash} />
     </group>
   );
 }

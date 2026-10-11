@@ -9,6 +9,12 @@ export const fx = {
   // holder's arm reaches for this point with IK, so hand and gun can't drift apart.
   grip: new THREE.Vector3(),
   gripHolder: null,
+  // Murder!: everyone holds their own gun. playerId -> world grip point, and
+  // playerId -> performance.now() of that gun's last shot (muzzle flash, recoil).
+  grips: new Map(),
+  shots: new Map(),
+  // Where the camera is and which way it faces (for panning sounds).
+  cam: { pos: new THREE.Vector3(), yaw: 0 },
 };
 
 export const sinceShot = () => performance.now() - fx.shotAt;

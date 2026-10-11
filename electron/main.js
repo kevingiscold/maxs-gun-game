@@ -107,7 +107,7 @@ async function createWindow() {
   const origin = `http://127.0.0.1:${server.port}`;
   // Camera + mic only for the game's own page — and never during automated
   // self-tests, whose window captures must not contain anyone's webcam.
-  const selfTesting = !!(process.env.GUN_SELFTEST || process.env.GUN_SELFTEST_PLAY || process.env.GUN_SELFTEST_SCENE || process.env.GUN_SELFTEST_CLICK || process.env.GUN_SELFTEST_CAP);
+  const selfTesting = !!(process.env.GUN_SELFTEST || process.env.GUN_SELFTEST_PLAY || process.env.GUN_SELFTEST_SCENE || process.env.GUN_SELFTEST_CLICK || process.env.GUN_SELFTEST_CAP || process.env.GUN_SELFTEST_MURDER || process.env.GUN_SELFTEST_FACE);
   // Electron gates pointer lock behind a permission too; without it every
   // "click to sit down" was silently refused.
   const allowed = (permission) =>
@@ -340,6 +340,69 @@ async function selfTestClick() {
 }
 
 /**
+ * GUN_SELFTEST_MURDER=<dir>: a Murder! match vs GUN_SELFTEST_BOTS bots (default 5).
+ * GUN_SELFTEST_STEPS is a timeline after Start: "cock@4000,fire@4600,snap:name@ms,fps@ms".
+ * Pointer lock is faked inside the page (the real mouse is never captured), and
+ * clicks are in-window synthetic events at the centre, i.e. on the crosshair.
+ * Pair with GUN_TEST_MURDERER (index / first / last / leader) and GUN_TEST_DARK.
+ */
+async function selfTestMurder(dir) {
+  const wc = win.webContents;
+  const run = (js) => wc.executeJavaScript(`(async () => { ${js} })()`, true);
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  fs.mkdirSync(dir, { recursive: true });
+  await wait(2500);
+  const bots = Number(process.env.GUN_SELFTEST_BOTS) || 5;
+  await run(`window.__noPointerLock = true;
+    window.__fakeLock = false;
+    Object.defineProperty(document, 'pointerLockElement', { configurable: true, get: () => (window.__fakeLock ? document.querySelector('.scene canvas') : null) });
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const btn = (t) => [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === t);
+    window.dispatchEvent(new PointerEvent('pointerdown'));
+    btn('Play').click(); await wait(2500);
+    [...document.querySelectorAll('.mode-btn')].find((b) => b.textContent.includes('Murder!')).click(); await wait(400);
+    for (let i = 0; i < ${bots}; i++) { btn('Add bot').click(); await wait(300); }`);
+  // The clock starts at the click: the first frames compile shaders and stall the page.
+  const t0 = Date.now();
+  await run(`[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Start').click();
+    window.__fakeLock = true;
+    document.dispatchEvent(new Event('pointerlockchange'));`);
+  const steps = (process.env.GUN_SELFTEST_STEPS || 'snap:start@3000')
+    .split(',')
+    .map((s) => s.split('@'))
+    .map(([what, ms]) => ({ what, ms: Number(ms) }))
+    .sort((a, b) => a.ms - b.ms);
+  const [w, h] = win.getContentSize();
+  const click = (button = 'left') => {
+    wc.sendInputEvent({ type: 'mouseDown', x: Math.round(w / 2), y: Math.round(h / 2), button, clickCount: 1 });
+    wc.sendInputEvent({ type: 'mouseUp', x: Math.round(w / 2), y: Math.round(h / 2), button, clickCount: 1 });
+  };
+  const hud = () =>
+    run(`const g = window.__gun?.useStore.getState().game; const q = (s) => document.querySelector(s)?.textContent;
+      return { top: q('.hud-top .round'), chip: q('.role-chip'), feed: q('.murder-feed'), sight: q('.sight-name'), hint: q('.gun-hint'),
+        dark: !!document.querySelector('.lights-out'), ghost: !!document.querySelector('.afterlife'), victory: q('.victory h2'),
+        alive: g?.players.filter((p) => p.alive).map((p) => p.name).join(' '), murderer: g?.murdererId ? g.players.find((p) => p.id === g.murdererId)?.name : null,
+        clock: g && { dark: g.dark, cycle: g.cycle, sinceStart: g.serverNow - g.startedAt, toNext: g.nextAt - g.serverNow, period: g.period, offset: window.__gun.useStore.getState().clockOffset, clientLeft: g.nextAt - (Date.now() + window.__gun.useStore.getState().clockOffset) } };`);
+  const log = [];
+  for (const st of steps) {
+    await wait(Math.max(0, st.ms - (Date.now() - t0)));
+    if (st.what === 'cock' || st.what === 'fire') click();
+    else if (st.what === 'lower') click('right');
+    else if (st.what === 'fps') {
+      const fps = await run(`return await new Promise((r) => { let n = 0; const t = performance.now(); const f = () => { n++; performance.now() - t < 3000 ? requestAnimationFrame(f) : r(+(n / ((performance.now() - t) / 1000)).toFixed(1)); }; requestAnimationFrame(f); });`);
+      log.push(['fps', fps]);
+      continue;
+    } else if (st.what.startsWith('snap:')) {
+      fs.writeFileSync(path.join(dir, st.what.slice(5) + '.png'), (await win.capturePage()).toPNG());
+    }
+    await wait(150);
+    log.push([st.what, await hud()]);
+  }
+  console.log('MURDERTEST ' + JSON.stringify(log));
+  app.quit();
+}
+
+/**
  * GUN_SELFTEST_CAP=<dir> (with GUN_USER_DATA, so the real character isn't
  * changed): put a cap on every hairstyle and capture the Character preview.
  */
@@ -361,8 +424,8 @@ async function selfTestCap(dir) {
   const chip = (group, v) =>
     run(`const g = [...document.querySelectorAll('.opt')].find((o) => o.querySelector('.opt-label').textContent === '${group}');
       const b = [...g.querySelectorAll('button')].find((x) => x.textContent.trim() === '${v}'); b?.click(); return !!b;`);
-  const out = { fedoraOffered: await chip('Accessory', 'fedora') };
-  await chip('Accessory', 'cap');
+  const out = { fedoraOffered: await chip('Accessories', 'fedora') };
+  await chip('Accessories', 'cap');
   for (const hair of ['short', 'long', 'mohawk', 'afro', 'bun', 'slick', 'bald']) {
     await chip('Hair', hair);
     await wait(700);
@@ -382,11 +445,80 @@ async function selfTestCap(dir) {
   app.quit();
 }
 
+/**
+ * GUN_SELFTEST_FACE=<dir> (with GUN_USER_DATA, so the real character isn't
+ * changed): capture the Character preview close up for every facial hair
+ * style and a few accessory combinations, from the front and the side.
+ */
+async function selfTestFace(dir) {
+  const wc = win.webContents;
+  const run = (js) => wc.executeJavaScript(`(async () => { ${js} })()`, true);
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  fs.mkdirSync(dir, { recursive: true });
+  await wait(2500);
+  await run(`[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Character').click();`);
+  await wait(1500);
+  const rect = await run(`const r = document.querySelector('.preview').getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) };`);
+  const cx = rect.x + rect.width / 2;
+  const cy = rect.y + rect.height / 2;
+  for (let i = 0; i < 14; i++) {
+    wc.sendInputEvent({ type: 'mouseWheel', x: cx, y: cy, deltaX: 0, deltaY: 120, wheelTicksY: 1, canScroll: true });
+    await wait(60);
+  }
+  const chip = (group, v) =>
+    run(`const g = [...document.querySelectorAll('.opt')].find((o) => o.querySelector('.opt-label').textContent === '${group}');
+      const b = [...g.querySelectorAll('button')].find((x) => x.textContent.trim() === '${v}'); b?.click(); return !!b;`);
+  const worn = () => run(`return [...[...document.querySelectorAll('.opt')].find((o) => o.querySelector('.opt-label').textContent === 'Accessories').querySelectorAll('.chip.on')].map((b) => b.textContent.trim());`);
+  const snap = async (name) => {
+    await wait(700);
+    fs.writeFileSync(path.join(dir, name + '.png'), (await win.capturePage(rect)).toPNG());
+  };
+  const turn = async (px) => {
+    wc.sendInputEvent({ type: 'mouseDown', x: cx, y: cy, button: 'left', clickCount: 1 });
+    for (let i = 1; i <= 10; i++) {
+      wc.sendInputEvent({ type: 'mouseMove', x: cx + (i * px) / 10, y: cy, button: 'left', modifiers: ['leftButtonDown'] });
+      await wait(30);
+    }
+    wc.sendInputEvent({ type: 'mouseUp', x: cx + px, y: cy, button: 'left', clickCount: 1 });
+  };
+  const out = {};
+  await chip('Accessories', 'none');
+  await chip('Hair', 'short');
+  await turn(-28); // the preview starts at a 3/4 angle: face it straight on
+  for (const fh of ['stubble', 'mustache', 'goatee', 'beard']) {
+    await chip('Facial hair', fh);
+    await snap('face-' + fh);
+  }
+  await chip('Accessories', 'cap');
+  await chip('Accessories', 'cigar');
+  await chip('Accessories', 'shades');
+  out.capCigarShades = await worn();
+  await snap('combo-cap-cigar-shades');
+  await chip('Accessories', 'eyepatch');
+  out.afterEyepatch = await worn();
+  await snap('combo-cap-cigar-eyepatch');
+  await turn(248);
+  await snap('combo-side');
+  await chip('Accessories', 'none');
+  await chip('Facial hair', 'beard');
+  await snap('beard-side');
+  console.log('FACETEST ' + JSON.stringify(out));
+  app.quit();
+}
+
 app.whenReady().then(async () => {
   server = await startServer({ port: 3001 });
   await createWindow();
   if (process.env.GUN_SELFTEST_CAP) selfTestCap(process.env.GUN_SELFTEST_CAP).catch((e) => {
     console.log('CAPTEST-ERROR ' + e.stack);
+    app.quit();
+  });
+  if (process.env.GUN_SELFTEST_FACE) selfTestFace(process.env.GUN_SELFTEST_FACE).catch((e) => {
+    console.log('FACETEST-ERROR ' + e.stack);
+    app.quit();
+  });
+  if (process.env.GUN_SELFTEST_MURDER) selfTestMurder(process.env.GUN_SELFTEST_MURDER).catch((e) => {
+    console.log('MURDERTEST-ERROR ' + e.stack);
     app.quit();
   });
   if (process.env.GUN_SELFTEST_CLICK) selfTestClick().catch((e) => {

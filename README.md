@@ -11,6 +11,57 @@ either **passes** the gun to them or **shoots**:
 
 The last player alive wins.
 
+## Murder! (5–12 players)
+
+The leader picks **Murder!** in the lobby and sets how many bodies the murderer
+needs: 3–8, never more than the other players.
+
+- **Roles:** one secret player is the murderer, and everyone else is innocent.
+- **Guns:** everyone holds a gun and can shoot anyone at any time.
+  - **First click:** cocks it. The click is audible, and in the light your gun
+    visibly comes up.
+  - **Second click:** fires at whoever is under your crosshair.
+  - **Every shot:** needs its own cock first.
+  - **Right-click:** eases the hammer back down.
+- **Blackouts:** the lights go out 15 s in, then after every 20 s of light, for
+  10 s each time.
+  - Everyone gets **one shot per blackout**; in the light, as many as they like.
+  - **The murderer sees in the dark** (a dim, cold view). Everyone else sees
+    black, and their shots and clicks come from no particular direction: the
+    server doesn't even tell them who fired. In the light, sounds are panned to
+    the shooter's seat.
+  - Innocents only find bodies from the dark when the lights come back, and who
+    fired in the dark is never revealed to them until the game ends.
+- **Winning:** every death of a non-murderer counts for the murderer, including
+  innocents shot by innocents. If the goal is reached, the murderer wins. If the
+  murderer is shot, the table wins.
+- **Ghosts:** they work as in Classic. They hear everyone, only other ghosts hear
+  them, they see through the dark dimly, and they're told who the murderer is.
+- **Webcams:** not shown in Murder!. Twelve-way peer-to-peer video is too much
+  upload for home connections. Voice is on the whole time.
+- **Bots:** they act on what a person at the table could know.
+  - They grow suspicious of anyone who kills or fires in the light, cocks a gun
+    in the light, or had their hammer back when the lights went out.
+  - When a body turns up, each innocent bot gets a "gut read", their version of
+    reading faces: right about a third of the time, otherwise wrong.
+  - A bot only shoots once its suspicion passes a bar, and the bar drops as the
+    bodies pile up. Only one bot moves at a time.
+  - A murderer bot kills in nearly every blackout.
+  - `node scripts/murder-bots-sim.mjs [games] [players]` plays bot-only games on a
+    mocked clock. At tuning time the murderer won about 55% at 5–8 players and
+    35% at 12, with about one shot in the light per game.
+
+## Characters
+
+- **Accessories:** wear several at once, one per place. Head: cap. Eyes:
+  glasses, shades or eyepatch. Mouth: cigar. Picking one for a place that's
+  already taken swaps it.
+- **Facial hair:** built in the head's own shape, so it hugs the face. Stubble
+  is a fine dot texture that fades out at the top. The moustache is a drooping
+  chevron.
+- `GUN_SELFTEST_FACE=<folder>` (with `GUN_USER_DATA`) captures each facial hair
+  style and some accessory combinations.
+
 ## Giving it to friends (Windows + Mac)
 
 The **Release** GitHub Actions workflow (`.github/workflows/release.yml`) builds
@@ -102,6 +153,12 @@ Self-tests (no screenshots of your desktop; camera access is denied while they r
 - Self-tests never capture the mouse and deny camera access.
 - `node scripts/ghost-check.mjs`: the living never receive ghost positions.
 - `node scripts/lobby-check.mjs`: Start needs 2+ slots, bots fill up to 6.
+- `node scripts/murder-check.mjs`: Murder! seat limits, and that the living learn
+  nothing about who fired, who died or who's aiming while the lights are out.
+- `GUN_SELFTEST_MURDER=<folder>` (+ `GUN_SELFTEST_BOTS`, `GUN_SELFTEST_STEPS="cock@ms,fire@ms,snap:name@ms,fps@ms"`):
+  plays a Murder! match and fakes the pointer lock inside the page. Pair it with
+  `GUN_TEST_MURDERER=<seat>|leader|first|last`, `GUN_TEST_DARK=periodMs,darkMs` and
+  `GUN_TEST_BOT=idle|avenge|hunt`.
 
 ## Performance notes
 
@@ -128,7 +185,8 @@ Balanced (default), Low, Off.
 | --- | --- |
 | `shared/engine.js` | Pure rules + `viewFor()` (the only place that decides who sees the chamber) |
 | `shared/runner.js` | Timers around the engine (one per room) |
-| `shared/bot.js` | The solo-play opponent: same rules, minimum stare, unreliable tells |
+| `shared/bot.js` | The solo-play opponent: same rules, minimum stare, unreliable tells; Murder! bots |
+| `shared/murder.js` | Murder! rules + `murderView()` (the only place that decides what the living may know) |
 | `server/index.js` | Rooms, codes, leader, ready/ping, per-player state, WebRTC signalling; `startServer()` |
 | `electron/` | Desktop shell: embedded server, tunnel, camera permission, self-test |
 | `src/net/` | Socket session, invites, WebRTC mesh, camera/mic + simulated webcams |

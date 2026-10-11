@@ -10,6 +10,42 @@ import { sfx } from './audio/sfx.js';
 import { installInput, lockPointer } from './three/input.js';
 import { session } from './net/session.js';
 import { PHASE, TIMING } from '../shared/constants.js';
+import { fx } from './three/fx.js';
+import { sights } from './three/murder.js';
+
+/**
+ * Murder!: left-click once to pull the hammer back (the click everyone near you
+ * hears), left-click again to fire at whoever is under the crosshair. Every
+ * shot needs its own click to cock first. Right-click eases the hammer down.
+ * Sound and recoil play the instant you click; the server decides who dies.
+ */
+function onMurderClick(e, st, g) {
+  const me = g.players.find((p) => p.id === st.myId);
+  if (!me?.alive || g.phase !== 'playing') return;
+  if (e.button === 2) {
+    if (st.myCocked) {
+      useStore.setState({ myCocked: false });
+      session.lower();
+    }
+    return;
+  }
+  if (e.button !== 0) return;
+  if (g.dark && (g.spent || st.spentCycle === g.cycle)) return; // one shot per blackout
+  if (!st.myCocked) {
+    useStore.setState({ myCocked: true });
+    sfx.cock();
+    session.cock().then((r) => {
+      if (!r?.ok && r?.error !== 'already-cocked') useStore.setState({ myCocked: false });
+    });
+    return;
+  }
+  useStore.setState({ myCocked: false, ...(g.dark ? { spentCycle: g.cycle } : {}) });
+  const now = performance.now();
+  fx.shotAt = now;
+  fx.shots.set(st.myId, now);
+  sfx.bang({ close: true });
+  session.shoot(sights.targetId);
+}
 
 /** In a match with the mouse captured: left-click shoots, right-click passes. */
 function onSceneMouseDown(e) {
@@ -20,6 +56,7 @@ function onSceneMouseDown(e) {
     lockPointer(); // first click just sits you down
     return;
   }
+  if (g.mode === 'murder') return onMurderClick(e, st, g);
   const decidable =
     g.phase === PHASE.DECISION && g.shooterId === st.myId && performance.now() - st.phaseLocalStart >= TIMING.minStare;
   if (!decidable) return;

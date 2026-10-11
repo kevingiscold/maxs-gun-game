@@ -83,6 +83,13 @@ export const useStore = create((set, get) => ({
   firstPersonId: null, // whose eyes the camera is in (hide that head)
   // performance.now() when *you* died, for the blackout.
   deathAt: 0,
+  // Murder!
+  myCocked: false, // your hammer is back: the next left-click fires
+  spentCycle: -1, // the blackout you've already fired in (one shot each in the dark)
+  murderFeed: [], // [{text, at, key}] recent narration lines
+  lightsAt: 0, // performance.now() of the last lights change
+  roleAt: 0, // when the match started here (role card)
+  clockOffset: 0, // server clock minus ours, for the lights countdown
 
   toast: null,
   showToast: (text) => {

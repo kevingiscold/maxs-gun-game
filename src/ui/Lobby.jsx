@@ -5,7 +5,59 @@ import { useMedia, setMicMuted } from '../net/media.js';
 import { FaceIcon } from './FaceIcon.jsx';
 import { InviteBox } from './InviteBox.jsx';
 import { lockPointer, unlockPointer } from '../three/input.js';
-import { MAX_PLAYERS, MIN_PLAYERS } from '../../shared/constants.js';
+import { MODE, MURDER, limitsFor } from '../../shared/constants.js';
+import { goalRange, clampGoal } from '../../shared/murder.js';
+
+const MODES = [
+  { id: MODE.CLASSIC, name: 'Classic', blurb: 'Roulette duels: read the target, pass or shoot. 2–6 players.' },
+  { id: MODE.MURDER, name: 'Murder!', blurb: 'Everyone is armed. One secret murderer who sees in the dark. The lights keep going out. 5–12 players.' },
+];
+
+/** Leader picks the mode; everyone sees it. Murder! also sets the body count. */
+function ModePicker({ room, isLeader }) {
+  const mode = room.mode || MODE.CLASSIC;
+  const n = room.members.length;
+  const range = n >= 5 ? goalRange(n) : { min: MURDER.goalMin, max: MURDER.goalMax };
+  const goal = n >= 5 ? clampGoal(room.killGoal, n) : room.killGoal;
+  const setGoal = (g) => session.setRoomSettings({ killGoal: Math.min(range.max, Math.max(range.min, g)) });
+  return (
+    <div className="mode-picker">
+      <div className="mode-row">
+        {MODES.map((m) => (
+          <button
+            key={m.id}
+            className={`mode-btn ${mode === m.id ? 'on' : ''}`}
+            disabled={!isLeader}
+            onClick={() => session.setRoomSettings({ mode: m.id })}
+          >
+            <b>{m.name}</b>
+            <small>{m.blurb}</small>
+          </button>
+        ))}
+      </div>
+      {mode === MODE.MURDER && (
+        <div className="goal-row">
+          <span>Bodies the murderer needs</span>
+          {isLeader && (
+            <button className="btn small" disabled={goal <= range.min} onClick={() => setGoal(goal - 1)}>
+              −
+            </button>
+          )}
+          <b className="goal">{goal}</b>
+          {isLeader && (
+            <button className="btn small" disabled={goal >= range.max} onClick={() => setGoal(goal + 1)}>
+              +
+            </button>
+          )}
+          <small className="hint">
+            {range.min}–{range.max}
+            {n < 5 ? ' (never more than the other players)' : ''}
+          </small>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function Lobby() {
   const room = useStore((s) => s.room);
@@ -17,8 +69,10 @@ export function Lobby() {
   if (!room) return null;
   const me = room.members.find((m) => m.id === room.you);
   const isLeader = room.leaderId === room.you;
+  const { min: MIN_PLAYERS, max: MAX_PLAYERS } = limitsFor(room.mode);
   const full = room.members.length >= MAX_PLAYERS;
   const enough = room.members.length >= MIN_PLAYERS;
+  const over = room.members.length > MAX_PLAYERS;
 
   const start = async () => {
     lockPointer();
@@ -53,6 +107,7 @@ export function Lobby() {
           </div>
         </div>
         <InviteBox room={room} />
+        <ModePicker room={room} isLeader={isLeader} />
 
         <ul className="members">
           {room.members.map((m) => (
@@ -80,7 +135,7 @@ export function Lobby() {
               )}
             </li>
           ))}
-          {Array.from({ length: MAX_PLAYERS - room.members.length }, (_, i) => (
+          {Array.from({ length: Math.max(0, MAX_PLAYERS - room.members.length) }, (_, i) => (
             <li key={`e${i}`} className="empty">
               empty seat
             </li>
@@ -102,7 +157,7 @@ export function Lobby() {
               <button className="btn" disabled={full} onClick={session.addBot}>
                 Add bot
               </button>
-              <button className="btn primary" disabled={!enough} onClick={start}>
+              <button className="btn primary" disabled={!enough || over} onClick={start}>
                 Start
               </button>
             </>
@@ -116,6 +171,7 @@ export function Lobby() {
           </button>
         </div>
         {isLeader && !enough && <p className="hint">You need at least {MIN_PLAYERS} players. Add a bot, or invite a friend.</p>}
+        {isLeader && over && <p className="hint">Classic seats {MAX_PLAYERS} at most. Remove a bot, or play Murder!.</p>}
         {!isLeader && <p className="hint">The party leader starts the match.</p>}
       </div>
     </div>

@@ -7,6 +7,7 @@ import { PHASE } from '../../shared/constants.js';
 import { parseInvite } from './invite.js';
 import { receiveGhost, clearGhosts } from '../three/Ghosts.jsx';
 import { unlockPointer } from '../three/input.js';
+import { receiveAim, onMurderFx, onMurderState } from '../three/murder.js';
 
 let socket = null;
 let socketServer = null; // null = the server this page was loaded from
@@ -29,11 +30,15 @@ function ensureSocket(server = null) {
 
   socket.on('room:state', (room) => {
     const st = useStore.getState();
+    const prevGame = st.game;
     useStore.setState({ room, mode: 'online', roomServer: socketServer });
     st.setGame(room.game, room.you);
+    const murder = room.game?.mode === 'murder';
+    if (murder) onMurderState(prevGame, room.game, room.you);
+    const newMurder = murder && prevGame?.startedAt !== room.game.startedAt;
     // New turn: old tells are stale. New match (or back in the lobby): you're alive again.
     if (room.game?.phase === PHASE.AIMING) useStore.setState({ emotes: {} });
-    if (!room.game || (room.game.turn === 1 && room.game.phase === PHASE.AIMING)) {
+    if (!room.game || newMurder || (room.game.turn === 1 && room.game.phase === PHASE.AIMING)) {
       useStore.setState({ deathAt: 0 });
       clearGhosts();
     }
@@ -51,6 +56,9 @@ function ensureSocket(server = null) {
 
   // Other ghosts. The server only sends these to players who are dead.
   socket.on('ghost:pose', receiveGhost);
+  // Murder!: where others are looking, and the clicks and shots you can hear.
+  socket.on('aim:pose', receiveAim);
+  socket.on('murder:fx', onMurderFx);
 
   socket.on('room:emote', ({ id, text } = {}) => {
     useStore.setState((s) => ({ emotes: { ...s.emotes, [id]: { text: String(text).slice(0, 40), at: Date.now() } } }));
@@ -125,6 +133,13 @@ export const session = {
   sendGhost: (p, yaw) => socket?.volatile.emit('ghost:pose', { p, yaw }),
   removeBot: (id) => socket?.emit('room:removeBot', { id }),
   act: (action) => new Promise((r) => socket.emit('game:action', { action }, r)),
+  /** Leader: game mode and (Murder!) how many bodies the murderer needs. */
+  setRoomSettings: (patch) => socket?.emit('room:settings', patch),
+  cock: () => new Promise((r) => socket.emit('game:cock', {}, r)),
+  lower: () => new Promise((r) => socket.emit('game:lower', {}, r)),
+  shoot: (targetId) => new Promise((r) => socket.emit('game:shoot', { targetId }, r)),
+  /** Murder!: where you're looking (the server passes it on — only to ghosts in the dark). */
+  sendAim: (yaw, pitch) => socket?.volatile.emit('aim:pose', { yaw, pitch }),
   reset: () => socket?.emit('room:reset'),
   leave() {
     unlockPointer();
