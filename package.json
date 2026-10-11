@@ -1,0 +1,99 @@
+{
+  "name": "maxs-gun-game",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n server,client -c yellow,cyan \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "node --watch server/index.js --dev",
+    "dev:client": "vite",
+    "build": "vite build",
+    "start": "node server/index.js",
+    "app": "vite build && electron .",
+    "dist": "vite build && electron-builder --win --publish never",
+    "test": "node --test shared/ src/net/ src/three/",
+    "assets": "python scripts/fetch-assets.py",
+    "dist:mac": "vite build && electron-builder --mac --publish never"
+  },
+  "dependencies": {
+    "express": "^4.21.1",
+    "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "@react-three/drei": "^9.117.3",
+    "@react-three/fiber": "^8.17.10",
+    "@react-three/postprocessing": "^2.16.3",
+    "@vitejs/plugin-react": "^4.3.3",
+    "concurrently": "^9.1.0",
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8",
+    "postprocessing": "^6.36.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "socket.io-client": "^4.8.1",
+    "three": "^0.169.0",
+    "vite": "^5.4.10",
+    "zustand": "^5.0.1"
+  },
+  "description": "A webcam bluffing game of Russian roulette for 2–6 friends.",
+  "author": "Max",
+  "main": "electron/main.js",
+  "build": {
+    "appId": "com.max.gungame",
+    "productName": "Maxs Gun Game",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "server/**",
+      "shared/**",
+      "electron/**",
+      "package.json",
+      "!**/*.test.js"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "electron/icon.png",
+      "extraResources": [
+        {
+          "from": "vendor/cloudflared.exe",
+          "to": "cloudflared.exe"
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "artifactName": "MaxsGunGame-Setup.${ext}",
+      "shortcutName": "Max's Gun Game"
+    },
+    "portable": {
+      "artifactName": "MaxsGunGame-Portable.${ext}"
+    },
+    "afterPack": "scripts/after-pack.cjs",
+    "mac": {
+      "target": [
+        "zip"
+      ],
+      "artifactName": "MaxsGunGame-mac-${arch}.${ext}",
+      "icon": "electron/icon.png",
+      "category": "public.app-category.games",
+      "identity": null,
+      "hardenedRuntime": false,
+      "extraResources": [
+        {
+          "from": "vendor/cloudflared",
+          "to": "cloudflared"
+        }
+      ],
+      "extendInfo": {
+        "NSCameraUsageDescription": "Your face is the game: the other players see you on camera while you bluff.",
+        "NSMicrophoneUsageDescription": "Voice chat with the other players at the table."
+      }
+    }
+  }
+}

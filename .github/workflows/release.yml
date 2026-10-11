@@ -1,0 +1,96 @@
+# Builds Max's Gun Game for Windows and both kinds of Mac, smoke-tests each
+# build, and publishes them (plus the one-line install scripts) as a GitHub
+# Release. Run it from the Actions tab, or push a tag like v0.2.0.
+name: Release
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm test
+      - name: Fetch cloudflared (invite links)
+        shell: bash
+        run: mkdir -p vendor && curl -fsSL -o vendor/cloudflared.exe https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe
+      - run: npm run dist
+      - name: Smoke test
+        shell: bash
+        run: node scripts/ci-smoke.mjs "release/win-unpacked/Maxs Gun Game.exe"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: smoke-windows, path: smoke }
+      - uses: actions/upload-artifact@v4
+        with: { name: windows, path: release/MaxsGunGame-Setup.exe }
+
+  mac:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: macos-15, arch: arm64, cf: arm64 }
+          - { runner: macos-15-intel, arch: x64, cf: amd64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - name: Fetch cloudflared (invite links)
+        run: |
+          mkdir -p vendor
+          curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-${{ matrix.cf }}.tgz | tar -xz -C vendor
+          chmod +x vendor/cloudflared
+          file vendor/cloudflared
+      - run: npx vite build && npx electron-builder --mac --${{ matrix.arch }} --publish never
+        env: { CSC_IDENTITY_AUTO_DISCOVERY: 'false' }
+      - name: Smoke test
+        run: |
+          APP="$(ls -d release/mac*/'Maxs Gun Game.app' | head -1)"
+          codesign --verify --deep --strict "$APP" && echo "signature ok"
+          node scripts/ci-smoke.mjs "$APP/Contents/MacOS/Maxs Gun Game"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-mac-${{ matrix.arch }}
+          path: smoke
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-${{ matrix.arch }}
+          path: release/MaxsGunGame-mac-${{ matrix.arch }}.zip
+
+  release:
+    needs: [windows, mac]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: windows, path: out }
+      - uses: actions/download-artifact@v4
+        with: { pattern: mac-*, path: out, merge-multiple: true }
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for f in installer/install.sh installer/install.ps1; do sed "s#__REPO__#${{ github.repository }}#g" "$f" > "out/$(basename "$f")"; done
+          ls -la out
+          VERSION="v$(node -p "require('./package.json').version")"
+          TAG="${{ github.ref_type == 'tag' && github.ref_name || '' }}"
+          TAG="${TAG:-$VERSION}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" out/* --clobber
+          else
+            gh release create "$TAG" out/* --title "Max's Gun Game $TAG" --notes "Install with one command:
+
+          **Windows** (PowerShell): \`irm https://github.com/${{ github.repository }}/releases/latest/download/install.ps1 | iex\`
+
+          **Mac** (Terminal): \`curl -fsSL https://github.com/${{ github.repository }}/releases/latest/download/install.sh | bash\`"
+          fi
