@@ -182,8 +182,10 @@ async function selfTest(dir) {
     window.__noPointerLock = true;
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     const btn = (t) => [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === t);
-    btn('Play').click(); await wait(300);
-    await wait(1500); btn('Add bot').click(); await wait(600); btn('Start').click(); await wait(1500);
+    // wait for each button rather than a fixed delay: CI machines are sometimes slow
+    const press = async (t) => { for (let i = 0; i < 300 && !btn(t); i++) await wait(100); btn(t).click(); };
+    await press('Play');
+    await press('Add bot'); await wait(600); await press('Start'); await wait(1500);
     await wait(12000); // let the adaptive resolution settle
     const fps = await new Promise((res) => { let n = 0; const t0 = performance.now(); let worst = 0, last = t0;
       const f = (t) => { worst = Math.max(worst, t - last); last = t; n++; if (t - t0 < 6000) requestAnimationFrame(f); else res({ fps: +(n / ((t - t0) / 1000)).toFixed(1), worstMs: +worst.toFixed(1) }); };
