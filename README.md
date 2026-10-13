@@ -148,8 +148,11 @@ clicks **Join the table**.
 - **Limits:** someone still has to host from the desktop app. It needs a mouse
   and keyboard (phones and tablets won't work). Browsers forget the character
   between games, because each tunnel address is new. The same-Wi-Fi link is
-  plain http, so browsers won't share a camera over it; use the https browser
-  link instead.
+  plain http, and browsers only allow cameras on https pages. While the host is
+  open to the internet, a browser that opens the Wi-Fi link is redirected to the
+  https Browser link automatically. Before that, the page explains why the camera
+  is blocked and switches to the secure link as soon as the host opens one.
+  `node scripts/secure-link-check.mjs` checks this against a real tunnel.
 - **Testing:** `node scripts/web-host-check.mjs [port] [classic|murder]` serves the
   built site with a scripted host to test a browser player against.
 

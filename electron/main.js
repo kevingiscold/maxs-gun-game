@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { startServer } from '../server/index.js';
+import { startServer, setPublicUrl } from '../server/index.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -61,14 +61,20 @@ function startTunnel() {
       if (found && registered && !tunnel?.url) {
         tunnel.url = found;
         clearTimeout(timer);
-        setTimeout(() => resolve(found), 10000);
+        setTimeout(() => {
+          setPublicUrl(found); // browsers on the Wi-Fi address now get sent to https
+          resolve(found);
+        }, 10000);
       }
     };
     proc.stdout.on('data', scan);
     proc.stderr.on('data', scan);
     proc.on('exit', () => {
       clearTimeout(timer);
-      if (tunnel?.proc === proc) tunnel = null;
+      if (tunnel?.proc === proc) {
+        tunnel = null;
+        setPublicUrl(null);
+      }
       reject(new Error('Tunnel stopped.'));
     });
   });
@@ -77,6 +83,7 @@ function startTunnel() {
 function stopTunnel() {
   tunnel?.proc.kill();
   tunnel = null;
+  setPublicUrl(null);
 }
 
 async function createWindow() {

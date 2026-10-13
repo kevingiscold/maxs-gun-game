@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useStore } from '../store.js';
 import { formatInvite } from '../net/invite.js';
+import { IN_BROWSER } from '../store.js';
 
 function useLanInvite(code) {
   const [lan, setLan] = useState(null);
@@ -94,7 +95,10 @@ export function InviteBox({ room }) {
             <button className="btn primary" disabled={busy} onClick={openToInternet}>
               {busy ? 'Opening… (about 15 s)' : 'Open to the internet'}
             </button>
-            <div className="hint">Creates a temporary public address for this match through Cloudflare. No router setup.</div>
+            <div className="hint">
+              Creates a temporary public address for this match through Cloudflare. No router setup. Browser players need it: it gives the secure
+              (https) link that lets their camera and mic work.
+            </div>
           </div>
         )
       ) : (
@@ -106,7 +110,13 @@ export function InviteBox({ room }) {
         ))
       )}
       {err && <p className="error">{err}</p>}
-      {lan && <CopyRow label="Same Wi-Fi invite" value={lan} />}
+      {lan && (
+        <CopyRow
+          label="Same Wi-Fi invite"
+          value={lan}
+          hint={IN_BROWSER || !tunnelUrl ? "For the app. Browsers block cameras on this link (it isn't https): use the Browser link." : 'For the app. Browsers that open it are sent to the secure Browser link.'}
+        />
+      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useStore } from '../store.js';
 import { session } from '../net/session.js';
 import { parseInvite } from '../net/invite.js';
@@ -7,6 +7,37 @@ import { IN_BROWSER } from '../store.js';
 // Opened in a browser from an invite link (https://<host>/<CODE>): straight to "join this table".
 const urlInvite = IN_BROWSER ? parseInvite(location.pathname.replace(/^\/+/, '')) : null;
 const touchOnly = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches && !matchMedia('(pointer: fine)').matches;
+
+/**
+ * Opened over plain http (the host's same-Wi-Fi address): the browser won't
+ * allow a camera or mic here. Wait for the host's secure https link and jump to it.
+ */
+function InsecureNotice() {
+  const [waiting, setWaiting] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    const check = async () => {
+      try {
+        const { publicUrl } = await (await fetch('/api/info')).json();
+        if (alive && publicUrl) return location.replace(publicUrl + location.pathname + location.search);
+      } catch {
+        if (alive) setWaiting(false);
+      }
+      if (alive) setTimeout(check, 3000);
+    };
+    check();
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return (
+    <div className="insecure-note">
+      <b>Your camera and microphone are blocked on this link.</b> It's a plain <code>http://</code> address, and browsers only allow cameras on secure
+      (<code>https://</code>) pages. Ask the host to press <b>Open to the internet</b> and send you the <b>Browser link</b>.
+      {waiting && <span className="insecure-wait"> This page will switch to it by itself as soon as it exists.</span>}
+    </div>
+  );
+}
 
 function InviteLanding({ code }) {
   const profile = useStore((s) => s.profile);
@@ -27,6 +58,7 @@ function InviteLanding({ code }) {
   };
   return (
     <nav className="menu-list">
+      {!window.isSecureContext && <InsecureNotice />}
       <div className="landing-note">
         You're invited to table <b>{code}</b>
       </div>

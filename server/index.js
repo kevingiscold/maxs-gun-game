@@ -29,8 +29,25 @@ function lanAddresses() {
     .map((a) => a.address);
 }
 
+// The host's secure public address (an https Cloudflare tunnel) while they're
+// "open to the internet". Browsers only allow the camera and microphone on
+// https pages, so a browser that opens the plain-http same-Wi-Fi address is
+// sent there instead. (The desktop app's own page is on localhost, and game
+// sockets aren't page loads, so neither is affected.)
+let publicUrl = null;
+export const setPublicUrl = (url) => {
+  publicUrl = url ? String(url).replace(/\/$/, '') : null;
+};
+const isLoopback = (a = '') => a === '127.0.0.1' || a === '::1' || a === '::ffff:127.0.0.1';
+
+app.use((req, res, next) => {
+  const pageLoad = req.method === 'GET' && !req.path.startsWith('/api/') && !/\.[a-z0-9]+$/i.test(req.path) && req.accepts('html');
+  if (publicUrl && pageLoad && !isLoopback(req.socket.remoteAddress)) return res.redirect(302, publicUrl + req.originalUrl);
+  next();
+});
+
 app.get('/api/info', (_req, res) => {
-  res.json({ name: 'maxs-gun-game', port: http.address()?.port, lan: lanAddresses() });
+  res.json({ name: 'maxs-gun-game', port: http.address()?.port, lan: lanAddresses(), publicUrl });
 });
 
 // Production / desktop app: serve the built client from the same port.
