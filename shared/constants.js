@@ -1,9 +1,10 @@
 // Shared between the Node server and the browser client.
 
 // Game modes. Classic = the roulette duel; Murder! = everyone armed, one secret killer.
-export const MODE = { CLASSIC: 'classic', MURDER: 'murder' };
+export const MODE = { CLASSIC: 'classic', CHAOS: 'chaos', MURDER: 'murder' };
 export const LIMITS = {
   [MODE.CLASSIC]: { min: 2, max: 6 },
+  [MODE.CHAOS]: { min: 2, max: 6 },
   [MODE.MURDER]: { min: 5, max: 12 },
 };
 export const limitsFor = (mode) => LIMITS[mode] || LIMITS[MODE.CLASSIC];
@@ -24,6 +25,11 @@ export const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 // 1-in-4. No memory: five empty clicks in a row don't make the sixth more likely.
 export const LOAD_CHANCE = 1 / 4;
 
+// Chaos: a coin-flip chamber and three lives each. The shooter calls it —
+// shoot the target (betting it's loaded) or shoot themselves (betting it's
+// empty). Right: the target loses a life. Wrong: the shooter does.
+export const CHAOS = { lives: 3, loadChance: 1 / 2 };
+
 export const PHASE = {
   AIMING: 'aiming', // gun swings to the target, cylinder spins
   DECISION: 'decision', // target can peek, shooter picks PASS / SHOOT
@@ -37,6 +43,9 @@ export const OUTCOME = {
   MISFIRE: 'misfire', // shot was empty; shooter's own pull was loaded: shooter dies
   SURVIVED: 'survived', // shot was empty; shooter's own pull was empty too: nobody dies
   TIMEOUT: 'timeout', // shooter ran out of time: treated as a pass
+  // Chaos only: the shooter put it to their own head first
+  SELF_HIT: 'self-hit', // loaded: the shooter loses a life
+  SELF_CLEAR: 'self-clear', // empty: the shooter turns it on the target, who loses a life
 };
 
 // Milliseconds. The resolution timeline is what both the server timers and the
@@ -52,6 +61,8 @@ export const TIMING = {
     [OUTCOME.KILL]: 8500,
     [OUTCOME.MISFIRE]: 12000,
     [OUTCOME.SURVIVED]: 12500,
+    [OUTCOME.SELF_HIT]: 8500,
+    [OUTCOME.SELF_CLEAR]: 12000,
   },
   // cue offsets inside the resolving phase
   cock: 700, // one loud click: the gun is ready. Then nothing until the trigger.

@@ -1,7 +1,7 @@
 // Drives the engine with timers: one per room on the server. Bots (shared/bot.js)
 // act through the same act() call as people.
 
-import { PHASE, TIMING, LOAD_CHANCE } from './constants.js';
+import { PHASE, TIMING, LOAD_CHANCE, CHAOS } from './constants.js';
 import * as E from './engine.js';
 import * as M from './murder.js';
 
@@ -13,10 +13,11 @@ export class MatchRunner {
    * @param {() => boolean} [o.roll]  chamber draw; default is an independent 1-in-4
    * @param {number} [o.decisionMs]
    */
-  constructor({ players, onChange, roll, decisionMs = TIMING.decision, now = () => Date.now() }) {
-    this.state = E.createMatch(players);
+  constructor({ players, onChange, roll, variant, reveal, decisionMs = TIMING.decision, now = () => Date.now() }) {
+    this.state = E.createMatch(players, { variant, reveal });
     this.onChange = onChange;
-    this.roll = roll || (() => Math.random() < LOAD_CHANCE);
+    const chance = this.state.variant === 'chaos' ? CHAOS.loadChance : LOAD_CHANCE;
+    this.roll = roll || (() => Math.random() < chance);
     this.decisionMs = decisionMs;
     this.now = now;
     this.timer = null;
@@ -30,7 +31,8 @@ export class MatchRunner {
   }
 
   act(playerId, action) {
-    if (action !== 'shoot' && action !== 'pass') return 'bad-action';
+    const allowed = this.state.variant === 'chaos' ? ['shoot', 'self'] : ['shoot', 'pass'];
+    if (!allowed.includes(action)) return 'bad-action';
     // the shooter's own pull is rolled now, independently, in case it's needed
     const err = E.decide(this.state, playerId, action, this.now(), this.roll());
     if (!err) this._afterChange();

@@ -139,3 +139,77 @@ test('every pull is an independent 1-in-4, even after a run of empties', () => {
   assert.ok(Math.abs(loaded / N - 0.25) < 0.01, `overall ${loaded / N}`);
   assert.ok(Math.abs(afterFiveEmptyLoaded / afterFiveEmpty - 0.25) < 0.015, `after 5 empties ${afterFiveEmptyLoaded / afterFiveEmpty}`);
 });
+
+// ---------- Chaos ----------
+
+const chaos = (n, opts = {}) =>
+  E.createMatch(Array.from({ length: n }, (_, i) => ({ id: `p${i}`, name: `P${i}`, avatar: {} })), { variant: 'chaos', ...opts });
+const lives = (s) => s.players.map((p) => p.lives);
+
+test('chaos: everyone starts with 3 lives; the shooter may shoot or shoot themselves, never pass', () => {
+  const s = chaos(3);
+  assert.deepEqual(lives(s), [3, 3, 3]);
+  toDecision(s, 'p0', true);
+  assert.equal(E.decide(s, 'p0', 'pass', 9000), 'bad-action');
+});
+
+test('chaos: shoot + loaded → target loses a life, and the target takes the gun', () => {
+  const s = chaos(3);
+  toDecision(s, 'p0', true);
+  E.decide(s, 'p0', 'shoot', 9000);
+  assert.deepEqual(lives(s), [3, 2, 3]);
+  assert.equal(s.result.nextShooterId, 'p1');
+});
+
+test('chaos: shoot + empty → the shooter loses a life', () => {
+  const s = chaos(3);
+  toDecision(s, 'p0', false);
+  E.decide(s, 'p0', 'shoot', 9000);
+  assert.equal(s.result.outcome, OUTCOME.MISFIRE);
+  assert.deepEqual(lives(s), [2, 3, 3]);
+  assert.equal(s.result.nextShooterId, 'p1');
+});
+
+test('chaos: self + loaded → the shooter loses a life; self + empty → the target does', () => {
+  const a = chaos(3);
+  toDecision(a, 'p0', true);
+  E.decide(a, 'p0', 'self', 9000);
+  assert.equal(a.result.outcome, OUTCOME.SELF_HIT);
+  assert.deepEqual(lives(a), [2, 3, 3]);
+  const b = chaos(3);
+  toDecision(b, 'p0', false);
+  E.decide(b, 'p0', 'self', 9000);
+  assert.equal(b.result.outcome, OUTCOME.SELF_CLEAR);
+  assert.deepEqual(lives(b), [3, 2, 3]);
+});
+
+test('chaos: the third life lost is death; a dead target leaves the gun with the shooter', () => {
+  const s = chaos(3);
+  s.players[1].lives = 1;
+  toDecision(s, 'p0', true);
+  E.decide(s, 'p0', 'shoot', 9000);
+  assert.equal(s.players[1].alive, false);
+  assert.deepEqual(s.result.eliminated, [{ id: 'p1', at: 2900 }]);
+  E.finishResolve(s, false, 30000);
+  assert.equal(s.shooterId, 'p0');
+  assert.equal(s.targetId, 'p2');
+});
+
+test('chaos: a coin-flip chamber', () => {
+  const r = new MatchRunner({ players: [{ id: 'a' }, { id: 'b' }], variant: 'chaos', onChange: () => {} });
+  let loaded = 0;
+  for (let i = 0; i < 4000; i++) loaded += r.roll();
+  assert.ok(Math.abs(loaded / 4000 - 0.5) < 0.04);
+  r.dispose();
+});
+
+test('reveal option: everyone but the shooter sees the chamber', () => {
+  const s = chaos(4, { reveal: true });
+  toDecision(s, 'p0', true);
+  assert.equal(E.viewFor(s, 'p0').chamber, null, 'not the shooter');
+  assert.equal(E.viewFor(s, 'p1').chamber, 'loaded');
+  assert.equal(E.viewFor(s, 'p2').chamber, 'loaded', 'spectators too');
+  const plain = mk(4);
+  toDecision(plain, 'p0', true);
+  assert.equal(E.viewFor(plain, 'p2').chamber, null, 'off by default');
+});

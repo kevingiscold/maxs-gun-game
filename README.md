@@ -11,6 +11,26 @@ either **passes** the gun to them or **shoots**:
 
 The last player alive wins.
 
+## Chaos (2–6 players)
+
+Classic's table, but the chamber is a coin flip (50%) and everyone has **3 lives**
+(the hearts bottom-right). The shooter can't pass, so they have to call it:
+
+- **Shoot them** (betting it's loaded). Loaded: they lose a life. Empty: you have
+  to shoot yourself, and you lose a life.
+- **Shoot yourself** (betting it's empty). Loaded: you lose a life. Empty: you're
+  fine, you turn it on them, and they lose a life.
+
+So a right call costs the target a life, and a wrong one costs the shooter. The
+gun then goes to the target, unless they died, in which case the shooter keeps it
+and aims at the next player, as in Classic. The target still sees the chamber
+and bluffs. Left-click shoots them, right-click shoots yourself. Running out the
+45 s timer passes the gun with nobody hurt.
+
+**Option (Classic and Chaos):** *Everyone but the shooter sees the chamber.*
+Spectators get a card showing LOADED or EMPTY and the right call, and can watch
+the shooter guess.
+
 ## Murder! (5–12 players)
 
 The leader picks **Murder!** in the lobby and sets how many bodies the murderer

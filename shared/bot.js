@@ -50,7 +50,9 @@ export function createBotDriver(runner, onTell, rng = Math.random) {
       // takes its time: past the minimum stare, then a few more agonising seconds
       let delay = TIMING.minStare + 3000 + rng() * 6000;
       const forced = typeof process !== 'undefined' ? process.env?.GUN_TEST_BOT : null; // test-only
-      const choice = forced === 'shoot' || forced === 'pass' ? forced : rng() < 0.45 ? 'shoot' : 'pass';
+      const chaos = s.variant === 'chaos';
+      const choice =
+        forced === 'shoot' || forced === (chaos ? 'self' : 'pass') ? forced : chaos ? (rng() < 0.5 ? 'shoot' : 'self') : rng() < 0.45 ? 'shoot' : 'pass';
       if (forced) delay = TIMING.minStare + 1000; // deterministic timing for staged tests
       timer = setTimeout(() => runner.act(shooter.id, choice), delay);
     }

@@ -61,7 +61,8 @@ function onSceneMouseDown(e) {
     g.phase === PHASE.DECISION && g.shooterId === st.myId && performance.now() - st.phaseLocalStart >= TIMING.minStare;
   if (!decidable) return;
   if (e.button === 0) session.act('shoot');
-  if (e.button === 2) session.act('pass');
+  // Chaos has no pass: right-click puts it to your own head
+  if (e.button === 2) session.act(g.variant === 'chaos' ? 'self' : 'pass');
 }
 
 export default function App() {

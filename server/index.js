@@ -65,6 +65,7 @@ function roomPayload(room, viewerId) {
     status: room.status,
     mode: room.mode,
     killGoal: room.killGoal,
+    reveal: !!room.reveal,
     you: viewerId,
     members: room.members.map(({ id, name, avatar, ready, ping, isBot }) => ({ id, name, avatar, ready, ping, isBot: !!isBot })),
     game: room.runner ? gameView(room.runner.state, viewerId) : null,
@@ -218,6 +219,8 @@ io.on('connection', (socket) => {
     const testRolls = process.env.GUN_TEST_ROLLS?.split(',').map((x) => x.trim() === '1');
     let rollAt = 0;
     room.runner = new MatchRunner({
+      variant: room.mode === MODE.CHAOS ? 'chaos' : 'classic',
+      reveal: room.reveal,
       roll: testRolls ? () => testRolls[rollAt++ % testRolls.length] : undefined,
       players,
       onChange: () => {
@@ -226,7 +229,8 @@ io.on('connection', (socket) => {
       },
     });
     room.botDriver = createBotDriver(room.runner, (id, text) => io.to(room.code).emit('room:emote', { id, text }));
-    room.runner.start(process.env.GUN_TEST_FIRST === 'last' ? players[players.length - 1].id : undefined);
+    const first = process.env.GUN_TEST_FIRST; // test-only: 'last' or a seat index
+    room.runner.start(first === 'last' ? players[players.length - 1].id : /^\d+$/.test(first || '') ? players[Number(first)]?.id : undefined);
     ack(cb, { ok: true });
   });
 
@@ -244,10 +248,11 @@ io.on('connection', (socket) => {
   });
 
   // Leader picks the mode (and, for Murder!, how many bodies the murderer needs).
-  socket.on('room:settings', ({ mode, killGoal } = {}) => {
+  socket.on('room:settings', ({ mode, killGoal, reveal } = {}) => {
     const room = roomOf();
     if (!room || room.leaderId !== socket.data.playerId || room.status !== 'lobby') return;
-    if (mode === MODE.CLASSIC || mode === MODE.MURDER) room.mode = mode;
+    if (mode === MODE.CLASSIC || mode === MODE.CHAOS || mode === MODE.MURDER) room.mode = mode;
+    if (typeof reveal === 'boolean') room.reveal = reveal;
     const g = Math.round(Number(killGoal));
     if (Number.isFinite(g)) room.killGoal = Math.min(MURDER.goalMax, Math.max(MURDER.goalMin, g));
     broadcast(room);

@@ -1542,3 +1542,67 @@ button.mode-card:hover {
   color: var(--blood-hot);
   font-weight: 400;
 }
+
+/* ---------- Chaos ---------- */
+.mode-row {
+  grid-template-columns: repeat(3, 1fr);
+}
+.badge.chaos {
+  border-color: var(--blood);
+  color: var(--blood-hot);
+}
+.hearts {
+  position: absolute;
+  right: 18px;
+  bottom: 28px;
+  display: flex;
+  gap: 6px;
+  font-size: 2.1rem;
+  line-height: 1;
+  pointer-events: none;
+}
+.heart.full {
+  color: var(--blood-hot);
+  text-shadow: 0 0 10px rgba(255, 59, 46, 0.55), 0 2px 4px #000;
+}
+.heart.lost {
+  color: rgba(255, 255, 255, 0.12);
+  text-shadow: none;
+  animation: heart-lost 0.6s ease-out;
+}
+@keyframes heart-lost {
+  0% {
+    color: var(--blood-hot);
+    transform: scale(1.4);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.roster-hearts {
+  font-style: normal;
+  font-size: 0.65rem;
+  color: var(--blood-hot);
+  letter-spacing: 1px;
+}
+.reveal-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 10px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.reveal-row.readonly {
+  cursor: default;
+  opacity: 0.85;
+}
+.reveal-row small {
+  display: block;
+  color: var(--ink-dim);
+  font-size: 0.72rem;
+}
+.reveal-row input {
+  margin-top: 3px;
+  accent-color: var(--amber);
+}

@@ -10,6 +10,7 @@ import { goalRange, clampGoal } from '../../shared/murder.js';
 
 const MODES = [
   { id: MODE.CLASSIC, name: 'Classic', blurb: 'Roulette duels: read the target, pass or shoot. 2–6 players.' },
+  { id: MODE.CHAOS, name: 'Chaos', blurb: 'Coin-flip chamber, three lives each. Shoot them or shoot yourself: call it right. 2–6 players.' },
   { id: MODE.MURDER, name: 'Murder!', blurb: 'Everyone is armed. One secret murderer who sees in the dark. The lights keep going out. 5–12 players.' },
 ];
 
@@ -35,6 +36,15 @@ function ModePicker({ room, isLeader }) {
           </button>
         ))}
       </div>
+      {mode !== MODE.MURDER && (
+        <label className={`reveal-row ${isLeader ? '' : 'readonly'}`}>
+          <input type="checkbox" checked={!!room.reveal} disabled={!isLeader} onChange={(e) => session.setRoomSettings({ reveal: e.target.checked })} />
+          <span>
+            Everyone but the shooter sees the chamber
+            <small>Watch them guess. (Talking can spoil it, which is half the fun.)</small>
+          </span>
+        </label>
+      )}
       {mode === MODE.MURDER && (
         <div className="goal-row">
           <span>Bodies the murderer needs</span>

@@ -20,6 +20,15 @@ export function visiblyAlive(p, g, elapsed) {
   return false;
 }
 
+/** Chaos: lives as they look right now (a life lost mid-animation only goes when the shot lands). */
+export function visibleLives(p, g, elapsed) {
+  let n = p.lives ?? 1;
+  if (g?.phase === PHASE.RESOLVING) for (const h of g.result?.hits || []) if (h.id === p.id && elapsed < h.at) n += 1;
+  return n;
+}
+
+const wasEliminated = (g, id) => !!g.result?.eliminated.some((e) => e.id === id);
+
 export function avatarPose(p, g, elapsed) {
   if (!g) return 'rest';
   if (!visiblyAlive(p, g, elapsed)) return 'dead';
@@ -29,7 +38,10 @@ export function avatarPose(p, g, elapsed) {
   }
   if (g.phase === PHASE.RESOLVING && isShooter && p.id === g.result.shooterId) {
     const o = g.result.outcome;
-    if (o === OUTCOME.MISFIRE) return elapsed < TIMING.selfAim ? 'aim' : 'self';
+    // (a dead shooter shows 'dead' anyway; in Chaos they can survive their own shot)
+    if (o === OUTCOME.MISFIRE) return elapsed < TIMING.selfAim ? 'aim' : elapsed < TIMING.selfShot + 1400 ? 'self' : 'rest';
+    if (o === OUTCOME.SELF_HIT) return elapsed < TIMING.trigger + 1400 ? 'self' : 'rest';
+    if (o === OUTCOME.SELF_CLEAR) return elapsed < TIMING.selfAim ? 'self' : 'aim';
     if (o === OUTCOME.SURVIVED) return elapsed < TIMING.selfAim ? 'aim' : elapsed < TIMING.selfShot + 1400 ? 'self' : 'rest';
     if (o === OUTCOME.KILL) return 'aim';
     return elapsed < 1600 ? 'aim' : 'rest';
@@ -44,6 +56,8 @@ export function flinching(p, g, elapsed) {
   if (g.result.outcome === OUTCOME.KILL && near(TIMING.trigger)) return true;
   if (g.result.outcome === OUTCOME.MISFIRE && near(TIMING.selfShot)) return true;
   if (g.result.outcome === OUTCOME.SURVIVED && p.id === g.result.shooterId && near(TIMING.selfShot)) return true;
+  if (g.result.outcome === OUTCOME.SELF_HIT && near(TIMING.trigger)) return true;
+  if (g.result.outcome === OUTCOME.SELF_CLEAR && near(TIMING.selfShot)) return true;
   return false;
 }
 
@@ -119,13 +133,25 @@ export function gunPose(g, players, elapsed, clock) {
   // RESOLVING
   switch (r.outcome) {
     case OUTCOME.KILL:
+      // Chaos: a target who survives the hit takes the gun next
+      if (!wasEliminated(g, targetId) && elapsed > TIMING.trigger + 1600) return handedTo();
       return aim({ tremble: elapsed < TIMING.trigger });
+    case OUTCOME.SELF_HIT:
+      if (elapsed < TIMING.trigger + 1400) return toTemple({ tremble: elapsed < TIMING.trigger });
+      if (wasEliminated(g, shooterId)) return lying(seatPoint(si, n, new THREE.Vector3(-0.15, TABLE_HEIGHT + 0.035, 0.62)), seat(si, n).rotY + 2.2);
+      return handedTo();
+    case OUTCOME.SELF_CLEAR:
+      if (elapsed < TIMING.selfAim) return toTemple({ tremble: elapsed < TIMING.trigger });
+      if (elapsed < TIMING.selfShot + 1600 || wasEliminated(g, targetId)) return aim({ tremble: elapsed < TIMING.selfShot });
+      return handedTo();
     case OUTCOME.SURVIVED:
       if (elapsed < TIMING.selfAim) return aim({ tremble: elapsed < TIMING.trigger });
       if (elapsed < TIMING.selfShot + 1400) return toTemple({ tremble: elapsed < TIMING.selfShot });
       return handedTo();
     case OUTCOME.MISFIRE:
       if (elapsed < TIMING.selfAim) return aim({ tremble: elapsed < TIMING.trigger });
+      // Chaos: the shooter can live through their own shot, then the target takes the gun
+      if (!wasEliminated(g, shooterId)) return elapsed < TIMING.selfShot + 1400 ? toTemple({ tremble: elapsed < TIMING.selfShot }) : handedTo();
       if (elapsed < TIMING.selfShot + 250) return toTemple({ tremble: elapsed < TIMING.selfShot });
       // the hand goes slack; the gun drops to the table in front of the body
       return lying(seatPoint(si, n, new THREE.Vector3(-0.15, TABLE_HEIGHT + 0.035, 0.62)), seat(si, n).rotY + 2.2);

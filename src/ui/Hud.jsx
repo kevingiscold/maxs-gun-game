@@ -5,7 +5,7 @@ import { useMedia, setMicMuted } from '../net/media.js';
 import { Feeds, RemoteAudio } from './Feeds.jsx';
 import { FaceIcon } from './FaceIcon.jsx';
 import { PHASE, OUTCOME, TIMING } from '../../shared/constants.js';
-import { visiblyAlive } from '../three/choreo.js';
+import { visiblyAlive, visibleLives } from '../three/choreo.js';
 import { MurderHud } from './MurderHud.jsx';
 
 export function useTick(ms = 100) {
@@ -19,7 +19,7 @@ export function useTick(ms = 100) {
 const elapsed = () => performance.now() - useStore.getState().phaseLocalStart;
 
 /** Target: the chamber, right there, the whole time. Keep your face still. */
-function ChamberCard({ chamber }) {
+function ChamberCard({ chamber, chaos }) {
   const loaded = chamber === 'loaded';
   return (
     <div className="peek">
@@ -31,10 +31,35 @@ function ChamberCard({ chamber }) {
         </div>
         <strong>{loaded ? 'LOADED' : 'EMPTY'}</strong>
         <small>
-          {loaded ? 'If they pull it, you die. Talk them out of it.' : "If they pull it, it's their turn to put it to their own head. Make them."}
+          {chaos
+            ? loaded
+              ? 'If they shoot you, you lose a life. Make them think it\'s empty.'
+              : 'If they shoot you, they lose a life instead. Make them do it.'
+            : loaded
+              ? 'If they pull it, you die. Talk them out of it.'
+              : "If they pull it, it's their turn to put it to their own head. Make them."}
         </small>
       </div>
       <div className="peek-title">Only you can see this. Don't let your face give it away.</div>
+    </div>
+  );
+}
+
+/** The "everyone but the shooter sees it" option: spectators watch knowing. */
+function SpectatorChamber({ game }) {
+  const loaded = game.chamber === 'loaded';
+  const name = (id) => game.players.find((p) => p.id === id)?.name ?? '?';
+  const S = name(game.shooterId);
+  const right = game.variant === 'chaos' ? (loaded ? `shoot ${name(game.targetId)}` : 'shoot themselves') : loaded ? 'shoot' : 'pass';
+  return (
+    <div className="peek ghost-peek spectator-peek">
+      <div className={`peek-card ${loaded ? 'loaded' : 'empty'}`}>
+        <strong>{loaded ? 'LOADED' : 'EMPTY'}</strong>
+        <small>
+          The right call for {S}: {right}.
+        </small>
+      </div>
+      <div className="peek-title">Everyone can see this except {S}. Will they guess right?</div>
     </div>
   );
 }
@@ -59,6 +84,69 @@ function GhostChamber({ game }) {
 }
 
 function ShooterControls({ game }) {
+  if (game.variant === 'chaos') return <ChaosControls game={game} />;
+  return <ClassicControls game={game} />;
+}
+
+/** Chaos: call it. Shoot them (it's loaded) or shoot yourself (it's empty). */
+function ChaosControls({ game }) {
+  useTick(200);
+  const mouseLocked = useStore((s) => s.pointerLocked);
+  const [busy, setBusy] = useState(false);
+  const el = elapsed();
+  const dur = game.deadline ? game.deadline - game.phaseStartedAt : 0;
+  const left = dur ? Math.max(0, dur - el) : null;
+  const locked = el < TIMING.minStare;
+  const target = game.players.find((p) => p.id === game.targetId)?.name ?? 'them';
+  const fire = async (action) => {
+    setBusy(true);
+    const res = await session.act(action);
+    if (!res?.ok) setBusy(false);
+  };
+  return (
+    <div className="shooter-ui">
+      <div className="peek-title">
+        {locked ? `Look at them. Really look. (${Math.ceil((TIMING.minStare - el) / 1000)})` : 'Fifty-fifty. Call it.'}
+      </div>
+      <div className={`shoot-row ${locked ? 'locked' : ''}`}>
+        <button className="btn action pass" disabled={busy || locked} onClick={() => fire('self')}>
+          Shoot yourself
+          <small>empty: then {target} loses a life</small>
+        </button>
+        <button className="btn action shoot" disabled={busy || locked} onClick={() => fire('shoot')}>
+          Shoot {target}
+          <small>empty: you lose a life</small>
+        </button>
+      </div>
+      <div className="mouse-hint">Left-click to SHOOT THEM · Right-click to SHOOT YOURSELF{mouseLocked ? '' : ' (click the room first)'}</div>
+      {left !== null && (
+        <div className="timer">
+          <div className="timer-bar" style={{ width: `${(left / dur) * 100}%` }} />
+          <span>{Math.ceil(left / 1000)}s, then the gun passes on its own</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Chaos: your lives, bottom right. One heart goes the moment a shot takes it. */
+function Hearts({ game, myId }) {
+  useTick(150);
+  const me = game.players.find((p) => p.id === myId);
+  if (!me || game.variant !== 'chaos') return null;
+  const n = visibleLives(me, game, elapsed());
+  return (
+    <div className="hearts" title={`${n} ${n === 1 ? 'life' : 'lives'} left`}>
+      {Array.from({ length: 3 }, (_, i) => (
+        <span key={i} className={`heart ${i < n ? 'full' : 'lost'}`}>
+          ♥
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function ClassicControls({ game }) {
   useTick(200);
   const mouseLocked = useStore((s) => s.pointerLocked);
   const [busy, setBusy] = useState(false);
@@ -121,8 +209,25 @@ function Narration({ game }) {
   const S = <b>{name(r.shooterId)}</b>;
   const T = <b>{name(r.targetId)}</b>;
   const squeeze = el < TIMING.cock ? <>{S} decides.</> : <>Click. The gun is ready…</>;
+  const died = (id) => r.eliminated.some((e) => e.id === id);
+  const lost = (who, id) => (died(id) ? <>{who} is dead.</> : <>{who} loses a life.</>);
   let line;
-  if (r.outcome === OUTCOME.KILL) line = el < TIMING.trigger ? squeeze : <>{T} is dead.</>;
+  if (r.outcome === OUTCOME.KILL) line = el < TIMING.trigger ? squeeze : game.variant === 'chaos' ? lost(T, r.targetId) : <>{T} is dead.</>;
+  else if (r.outcome === OUTCOME.SELF_HIT)
+    line = el < TIMING.trigger ? <>{S} puts it to their own head…</> : lost(S, r.shooterId);
+  else if (r.outcome === OUTCOME.SELF_CLEAR)
+    line =
+      el < TIMING.trigger ? (
+        <>{S} puts it to their own head…</>
+      ) : el < TIMING.trigger + 1400 ? (
+        <>Click.</>
+      ) : el < TIMING.selfAim ? (
+        <>Empty.</>
+      ) : el < TIMING.selfShot ? (
+        <>…and turns it on {T}.</>
+      ) : (
+        lost(T, r.targetId)
+      );
   else if (r.outcome === OUTCOME.MISFIRE || r.outcome === OUTCOME.SURVIVED)
     line =
       el < TIMING.trigger ? (
@@ -134,7 +239,7 @@ function Narration({ game }) {
       ) : el < TIMING.selfShot ? (
         <>{S} turns the gun around…</>
       ) : r.outcome === OUTCOME.MISFIRE ? (
-        <>{S} pays for the miss.</>
+        game.variant === 'chaos' ? lost(S, r.shooterId) : <>{S} pays for the miss.</>
       ) : el < TIMING.selfShot + 1400 ? (
         <>Click.</>
       ) : (
@@ -142,8 +247,9 @@ function Narration({ game }) {
       );
   else if (r.outcome === OUTCOME.TIMEOUT) line = <>{S} can't do it. The gun slides to {T}.</>;
   else line = el < 1800 ? <>{S} lowers the gun…</> : <>…and slides it across to {T}.</>;
-  const selfRound = r.outcome === OUTCOME.MISFIRE || r.outcome === OUTCOME.SURVIVED;
-  const reveal = r.outcome === OUTCOME.KILL || selfRound ? el > TIMING.trigger + 1400 : el > 2200;
+  const selfRound = (r.outcome === OUTCOME.MISFIRE && game.variant !== 'chaos') || r.outcome === OUTCOME.SURVIVED;
+  const shotRound = [OUTCOME.KILL, OUTCOME.MISFIRE, OUTCOME.SURVIVED, OUTCOME.SELF_HIT, OUTCOME.SELF_CLEAR].includes(r.outcome);
+  const reveal = shotRound ? el > TIMING.trigger + 1400 : el > 2200;
   return (
     <div className={`narration big ${r.outcome}`}>
       {line}
@@ -173,6 +279,9 @@ export function Roster({ game }) {
           >
             <FaceIcon avatar={p.avatar} size={30} dead={!alive} />
             <span>{p.name}</span>
+            {game.variant === 'chaos' && (
+              <em className="roster-hearts">{'♥'.repeat(alive ? visibleLives(p, game, el) : 0) || '✕'}</em>
+            )}
             {p.id === game.murdererId && <em className="roster-role">murderer</em>}
           </div>
         );
@@ -212,6 +321,7 @@ function Victory({ game, isLeader }) {
             <th>Survived own gun</th>
             <th>Passes</th>
             <th>Shots</th>
+            {game.variant === 'chaos' && <th>Lives</th>}
           </tr>
         </thead>
         <tbody>
@@ -228,11 +338,16 @@ function Victory({ game, isLeader }) {
               <td>{p.stats.selfSurvived ?? 0}</td>
               <td>{p.stats.passes}</td>
               <td>{p.stats.shots}</td>
+              {game.variant === 'chaos' && <td>{'♥'.repeat(p.lives ?? 0) || '—'}</td>}
             </tr>
           ))}
         </tbody>
       </table>
-      <p className="hint">Bluff = survived a loaded chamber because they passed, or baited a shot into an empty one.</p>
+      <p className="hint">
+        {game.variant === 'chaos'
+          ? 'Bluff = the shooter called it wrong while you held their eyes.'
+          : 'Bluff = survived a loaded chamber because they passed, or baited a shot into an empty one.'}
+      </p>
       <div className="row">
         {isLeader ? (
           <button className="btn primary" onClick={session.reset}>
@@ -273,6 +388,7 @@ export function Hud() {
       <div className="hud-top">
         <div className="round">
           Round {game.turn}
+          {game.variant === 'chaos' && <span className="badge chaos">Chaos</span>}
           {solo && <span className="badge">vs bot</span>}
         </div>
         <div className="hud-buttons">
@@ -291,14 +407,16 @@ export function Hud() {
       </div>
 
       <Roster game={game} />
+      {game.phase !== PHASE.GAMEOVER && <Hearts game={game} myId={myId} />}
 
       {game.phase !== PHASE.GAMEOVER && <Feeds />}
       <Narration game={game} />
 
       <div className="hud-bottom">
-        {deciding && isTarget && <ChamberCard chamber={game.chamber} />}
+        {deciding && isTarget && <ChamberCard chamber={game.chamber} chaos={game.variant === 'chaos'} />}
         {deciding && isShooter && <ShooterControls key={game.turn} game={game} />}
-        {deciding && !isShooter && !isTarget && !ghost && <div className="spectate">Not your duel. Watch their faces.</div>}
+        {deciding && !isShooter && !isTarget && !ghost && game.chamber && <SpectatorChamber game={game} />}
+        {deciding && !isShooter && !isTarget && !ghost && !game.chamber && <div className="spectate">Not your duel. Watch their faces.</div>}
         {deciding && ghost && game.chamber && <GhostChamber game={game} />}
       </div>
 

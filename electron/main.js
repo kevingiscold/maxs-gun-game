@@ -292,6 +292,9 @@ async function selfTestScene(dir) {
     const btn = (t) => [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === t);
     window.dispatchEvent(new PointerEvent('pointerdown'));
     btn('Play').click(); await wait(2500);
+    const mode = ${JSON.stringify(process.env.GUN_SELFTEST_MODE || '')};
+    if (mode) { [...document.querySelectorAll('.mode-btn')].find((b) => b.textContent.toLowerCase().startsWith(mode)).click(); await wait(400); }
+    if (${JSON.stringify(!!process.env.GUN_SELFTEST_REVEAL)}) { document.querySelector('.reveal-row input').click(); await wait(400); }
     for (let i = 0; i < ${bots}; i++) { btn('Add bot').click(); await wait(400); }
     btn('Start').click();`);
   const t0 = Date.now();
@@ -304,7 +307,7 @@ async function selfTestScene(dir) {
   for (const s of shots) {
     await wait(Math.max(0, s.ms - (Date.now() - t0)));
     fs.writeFileSync(path.join(dir, s.name + '.png'), (await win.capturePage()).toPNG());
-    log.push([s.name, await run(`return [document.querySelector('.narration')?.textContent, document.querySelector('.hud-bottom')?.textContent, document.querySelector('.afterlife-title')?.textContent].filter(Boolean).join(' | ')`)]);
+    log.push([s.name, await run(`return [document.querySelector('.narration')?.textContent, document.querySelector('.hud-bottom')?.textContent, document.querySelector('.afterlife-title')?.textContent, document.querySelector('.hearts')?.title, document.querySelector('.roster')?.textContent].filter(Boolean).join(' | ')`)]);
   }
   console.log('SCENETEST ' + JSON.stringify(log));
   app.quit();

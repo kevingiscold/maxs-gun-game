@@ -255,10 +255,14 @@ function Cues() {
     }
     if (g.phase === PHASE.RESOLVING) {
       const o = g.result.outcome;
-      const shot = o === OUTCOME.KILL || o === OUTCOME.MISFIRE || o === OUTCOME.SURVIVED;
+      const shot = [OUTCOME.KILL, OUTCOME.MISFIRE, OUTCOME.SURVIVED, OUTCOME.SELF_HIT, OUTCOME.SELF_CLEAR].includes(o);
       const bang = () => {
         fx.shotAt = performance.now();
         sfx.bang({ close: inDuel });
+      };
+      const dry = () => {
+        fx.clickAt = performance.now();
+        sfx.click();
       };
       if (shot) {
         // one loud click: it's ready. Then nothing but a racing heart until the trigger.
@@ -266,11 +270,15 @@ function Cues() {
         if (el > TIMING.cock && el < TIMING.trigger) beat(460);
       }
       if (o === OUTCOME.KILL) once('bang', TIMING.trigger, bang);
+      if (o === OUTCOME.SELF_HIT) once('bang', TIMING.trigger, bang);
+      if (o === OUTCOME.SELF_CLEAR) {
+        // click at your own head… then it turns, slowly, on them
+        once('click', TIMING.trigger, dry);
+        once('cock2', TIMING.selfAim + 1200, sfx.cock);
+        if (el > TIMING.selfAim + 1200 && el < TIMING.selfShot) beat(400);
+        once('self', TIMING.selfShot, bang);
+      }
       if (o === OUTCOME.MISFIRE || o === OUTCOME.SURVIVED) {
-        const dry = () => {
-          fx.clickAt = performance.now();
-          sfx.click();
-        };
         once('click', TIMING.trigger, dry);
         // silence... the gun turns around, slowly... ready... and
         once('cock2', TIMING.selfAim + 1200, sfx.cock);

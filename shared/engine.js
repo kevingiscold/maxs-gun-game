@@ -3,13 +3,21 @@
 // Seat order is the players array order; "anti-clockwise" means the next index.
 // The chamber (`state.loaded`) is secret: only viewFor() decides who sees it.
 
-import { PHASE, OUTCOME, TIMING } from './constants.js';
+import { PHASE, OUTCOME, TIMING, CHAOS } from './constants.js';
 
 const blankStats = () => ({ bluffs: 0, eliminations: 0, survivedMisfires: 0, selfSurvived: 0, passes: 0, shots: 0 });
 
-export function createMatch(players) {
+/**
+ * @param opts.variant 'classic' | 'chaos'
+ * @param opts.reveal  everyone except the shooter sees the chamber
+ */
+export function createMatch(players, { variant = 'classic', reveal = false } = {}) {
+  const chaos = variant === 'chaos';
   return {
+    variant: chaos ? 'chaos' : 'classic',
+    reveal: !!reveal,
     players: players.map((p) => ({
+      lives: chaos ? CHAOS.lives : 1,
       id: p.id,
       name: p.name,
       avatar: p.avatar,
@@ -90,6 +98,7 @@ export function decide(s, actorId, action, now, selfLoaded = false) {
   if (actorId !== s.shooterId) return 'not-shooter';
   // The stare-down can't be skipped.
   if (action !== 'timeout' && now - s.phaseStartedAt < TIMING.minStare) return 'too-soon';
+  if (s.variant === 'chaos') return decideChaos(s, action, now);
   const shooter = getPlayer(s, s.shooterId);
   const target = getPlayer(s, s.targetId);
 
@@ -141,6 +150,76 @@ export function decide(s, actorId, action, now, selfLoaded = false) {
     targetId: target.id,
     eliminated,
     nextShooterId,
+  };
+  setPhase(s, PHASE.RESOLVING, now, TIMING.resolve[outcome]);
+  return null;
+}
+
+/**
+ * Chaos: the shooter calls the chamber.
+ *  'shoot' — at the target. Loaded: the target loses a life. Empty: the shooter
+ *            must turn it on themselves, and loses a life.
+ *  'self'  — at their own head. Loaded: they lose a life. Empty: they're fine,
+ *            and turn it on the target, who loses a life.
+ *  'timeout' — too slow: the gun passes, nobody is hurt.
+ * The gun then goes to the target, unless the target died (then the shooter
+ * keeps it and aims at the next player), exactly as in Classic.
+ */
+function decideChaos(s, action, now) {
+  const shooter = getPlayer(s, s.shooterId);
+  const target = getPlayer(s, s.targetId);
+  const hits = [];
+  const eliminated = [];
+  const hit = (p, at) => {
+    p.lives = Math.max(0, p.lives - 1);
+    hits.push({ id: p.id, at });
+    if (p.lives === 0) {
+      p.alive = false;
+      eliminated.push({ id: p.id, at });
+    }
+  };
+  let outcome;
+  if (action === 'timeout') {
+    outcome = OUTCOME.TIMEOUT;
+    shooter.stats.passes += 1;
+    log(s, `${shooter.name} hesitates too long and passes it to ${target.name}.`);
+  } else if (action === 'shoot') {
+    shooter.stats.shots += 1;
+    if (s.loaded) {
+      outcome = OUTCOME.KILL;
+      hit(target, TIMING.trigger);
+      log(s, `BANG. ${shooter.name} shoots ${target.name}.`);
+    } else {
+      outcome = OUTCOME.MISFIRE;
+      target.stats.bluffs += 1;
+      hit(shooter, TIMING.selfShot);
+      log(s, `Click. Empty. ${shooter.name} has to shoot themselves.`);
+    }
+  } else if (action === 'self') {
+    shooter.stats.shots += 1;
+    if (s.loaded) {
+      outcome = OUTCOME.SELF_HIT;
+      target.stats.bluffs += 1;
+      hit(shooter, TIMING.trigger);
+      log(s, `${shooter.name} puts it to their own head. BANG.`);
+    } else {
+      outcome = OUTCOME.SELF_CLEAR;
+      hit(target, TIMING.selfShot);
+      log(s, `${shooter.name} puts it to their own head. Click. Then turns it on ${target.name}.`);
+    }
+  } else {
+    return 'bad-action';
+  }
+  for (const e of eliminated) if (e.id !== shooter.id) shooter.stats.eliminations += 1;
+  s.result = {
+    outcome,
+    loaded: s.loaded,
+    selfLoaded: outcome === OUTCOME.MISFIRE ? true : null,
+    shooterId: shooter.id,
+    targetId: target.id,
+    eliminated,
+    hits,
+    nextShooterId: target.alive ? target.id : shooter.id,
   };
   setPhase(s, PHASE.RESOLVING, now, TIMING.resolve[outcome]);
   return null;
@@ -199,7 +278,8 @@ export function viewFor(s, viewerId) {
   // The target sees the chamber, and so do the dead: ghosts watch every duel knowing.
   // (Only during DECISION, so someone killed mid-resolve can't learn anything early.)
   const viewer = s.players.find((p) => p.id === viewerId);
-  const knows = viewerId === s.targetId || (viewer && !viewer.alive);
+  // With the "reveal" option everyone except the shooter watches knowing.
+  const knows = viewerId === s.targetId || (viewer && !viewer.alive) || (s.reveal && viewerId !== s.shooterId);
   return {
     ...rest,
     players: s.players.map((p) => ({ ...p, stats: { ...p.stats } })),
