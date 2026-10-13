@@ -25,13 +25,25 @@ export const DEFAULT_SETTINGS = {
   camId: '',
   micId: '',
   musicVolume: 0.35,
-  quality: 'balanced', // high | balanced | low | off (see three/Scene.jsx Effects)
+  quality: 'balanced', // high | balanced | low | off | lite (see three/Scene.jsx Effects)
   freeLookSpeed: 1,
   version: 2,
 };
 
+// Played in a web browser (not the desktop app): start on the Lite preset —
+// small textures, no shadows or post-processing — so ordinary laptops cope.
+export const IN_BROWSER = typeof window !== 'undefined' && !window.gunApp;
+
 function loadSettings() {
+  const fresh = (() => {
+    try {
+      return !localStorage.getItem('mgg.settings');
+    } catch {
+      return true;
+    }
+  })();
   const s = load('mgg.settings', DEFAULT_SETTINGS);
+  if (fresh && IN_BROWSER) s.quality = 'lite';
   let stored = null;
   try {
     stored = JSON.parse(localStorage.getItem('mgg.settings'));

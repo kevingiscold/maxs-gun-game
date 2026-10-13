@@ -1519,3 +1519,26 @@ button.mode-card:hover {
   font-size: 0.7rem;
   color: var(--ink-dim);
 }
+
+/* invite link opened in a browser */
+.landing-note {
+  text-align: center;
+  font-size: 1.05rem;
+}
+.landing-note b {
+  font-family: var(--head);
+  letter-spacing: 0.25em;
+  color: var(--amber-hot);
+  font-weight: 400;
+}
+.landing-hint {
+  max-width: 340px;
+  text-align: center;
+  font-size: 0.78rem;
+}
+.landing-hint b {
+  display: block;
+  margin-top: 6px;
+  color: var(--blood-hot);
+  font-weight: 400;
+}

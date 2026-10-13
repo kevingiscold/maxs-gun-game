@@ -29,6 +29,9 @@ function useLanInvite(code) {
   return lan;
 }
 
+const BROWSER_HINT = "Friends without the app open this in Chrome, Edge or Firefox on a computer. Lighter graphics, same game.";
+const browserLink = (server, code) => `${String(server).replace(/\/$/, '')}/${code}`;
+
 function CopyRow({ label, value, hint }) {
   const showToast = useStore((s) => s.showToast);
   const copy = async () => {
@@ -64,6 +67,7 @@ export function InviteBox({ room }) {
     return (
       <div className="invite">
         <CopyRow label="Invite" value={formatInvite(roomServer, room.code)} hint="Anyone with this can join while the host is online." />
+        {roomServer.startsWith('https://') && <CopyRow label="Browser link" value={browserLink(roomServer, room.code)} hint={BROWSER_HINT} />}
       </div>
     );
   }
@@ -81,7 +85,10 @@ export function InviteBox({ room }) {
     <div className="invite">
       {window.gunApp ? (
         tunnelUrl ? (
-          <CopyRow label="Internet invite" value={formatInvite(tunnelUrl, room.code)} hint="Friends paste this into Join. Works from anywhere." />
+          <>
+            <CopyRow label="Internet invite" value={formatInvite(tunnelUrl, room.code)} hint="Friends with the app paste this into Join. Works from anywhere." />
+            <CopyRow label="Browser link" value={browserLink(tunnelUrl, room.code)} hint={BROWSER_HINT} />
+          </>
         ) : (
           <div className="invite-row">
             <button className="btn primary" disabled={busy} onClick={openToInternet}>
@@ -91,7 +98,12 @@ export function InviteBox({ room }) {
           </div>
         )
       ) : (
-        !isLocalPage && <CopyRow label="Invite" value={formatInvite(location.origin, room.code)} />
+        !isLocalPage &&
+        (location.protocol === 'https:' ? (
+          <CopyRow label="Browser link" value={browserLink(location.origin, room.code)} hint={BROWSER_HINT} />
+        ) : (
+          <CopyRow label="Invite" value={formatInvite(location.origin, room.code)} />
+        ))
       )}
       {err && <p className="error">{err}</p>}
       {lan && <CopyRow label="Same Wi-Fi invite" value={lan} />}

@@ -112,6 +112,7 @@ export function Settings() {
             <span>Graphics</span>
             <select value={settings.quality} onChange={(e) => setSettings({ quality: e.target.value })}>
               <option value="high">High (bloom, smoke, anti-aliasing)</option>
+              <option value="lite">Lite (for browsers and older laptops)</option>
               <option value="balanced">Balanced (recommended)</option>
               <option value="low">Low (fastest)</option>
               <option value="off">Off (no post-processing)</option>

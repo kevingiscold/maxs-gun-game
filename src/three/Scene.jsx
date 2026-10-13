@@ -490,7 +490,7 @@ function CameraRig() {
 
 function Effects() {
   const quality = useStore((s) => s.settings.quality);
-  if (quality === 'off') return null;
+  if (quality === 'off' || quality === 'lite') return null;
   // Depth of field was removed: on integrated GPUs it halved the frame rate.
   if (quality === 'high') {
     return (
@@ -528,13 +528,17 @@ export function SceneCanvas() {
   // Render resolution adapts to the frame rate (PerformanceMonitor below).
   // Resolution follows a pixel budget, not the screen's scaling factor: a big
   // window on a laptop GPU otherwise renders 2.5M+ pixels a frame.
-  const budget = quality === 'high' ? 2.2e6 : quality === 'balanced' ? 1.2e6 : 0.8e6;
+  const lite = quality === 'lite';
+  const budget = quality === 'high' ? 2.2e6 : quality === 'balanced' ? 1.2e6 : lite ? 0.6e6 : 0.8e6;
   const fit = Math.sqrt(budget / (window.innerWidth * window.innerHeight));
-  const maxDpr = Math.max(0.6, Math.min(window.devicePixelRatio || 1, 1.5, fit));
+  const minDpr = lite ? 0.45 : 0.6;
+  const maxDpr = Math.max(minDpr, Math.min(window.devicePixelRatio || 1, 1.5, fit));
   const [dpr, setDpr] = useState(maxDpr);
   return (
     <Canvas
-      shadows
+      // Lite: no shadow maps at all (re-created when the preset changes)
+      key={lite ? 'lite' : 'full'}
+      shadows={!lite}
       dpr={dpr}
       camera={{ position: [3.5, 2.2, 3.5], fov: 42, near: 0.05, far: 40 }}
       gl={{ antialias: false, powerPreference: 'high-performance', stencil: false }}
@@ -544,7 +548,7 @@ export function SceneCanvas() {
     >
       <PerformanceMonitor
         bounds={() => [45, 58]}
-        onDecline={() => setDpr((d) => Math.max(0.6, +(d - 0.15).toFixed(2)))}
+        onDecline={() => setDpr((d) => Math.max(minDpr, +(d - 0.15).toFixed(2)))}
         onIncline={() => setDpr((d) => Math.min(maxDpr, +(d + 0.15).toFixed(2)))}
       />
       <Suspense fallback={null}>

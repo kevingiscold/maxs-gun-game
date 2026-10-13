@@ -116,6 +116,23 @@ then click it.
 
 Friends on the same Wi-Fi can use the "Same Wi-Fi invite" instead, with no tunnel.
 
+**Playing in a browser (no install):** after **Open to the internet**, the lobby
+also shows a **Browser link** like `https://quiet-river-12.trycloudflare.com/G7ZJ6`.
+A friend opens it in Chrome, Edge or Firefox on a computer, types a name and
+clicks **Join the table**.
+- **Graphics:** the host's app serves the whole game to them. Browsers start on
+  the **Lite** preset: 512 px textures (about 0.4 MB instead of 10 MB), and no
+  shadows, post-processing or sparkles.
+- **Speed:** on an Iris Xe, a 12-player Murder! table runs at a locked 60 fps on
+  Lite, against 46–50 on Balanced.
+- **Limits:** someone still has to host from the desktop app. It needs a mouse
+  and keyboard (phones and tablets won't work). Browsers forget the character
+  between games, because each tunnel address is new. The same-Wi-Fi link is
+  plain http, so browsers won't share a camera over it; use the https browser
+  link instead.
+- **Testing:** `node scripts/web-host-check.mjs [port] [classic|murder]` serves the
+  built site with a scripted host to test a browser player against.
+
 How it works: the app runs the game server inside itself. "Open to the internet"
 starts Cloudflare's free quick tunnel (bundled `cloudflared`, forced to `http2`
 because UDP/QUIC is blocked on many networks), which gives the host's PC a
@@ -204,7 +221,6 @@ Asset licenses are in [CREDITS.md](CREDITS.md). Everything is CC0 or Apache-2.0.
   game state and the invite still work. Fixing that needs a TURN server.
 - Quick tunnels are Cloudflare's free, no-SLA service. They're fine for friends,
   but not a production host.
-- Windows only for now; Mac builds need a Mac or CI.
 - Two players can pass back and forth forever. The 45 s timer only auto-passes.
 - The bot can't read faces: as Shooter it just shoots about 45% of the time.
 - No reconnect: closing the app mid-match forfeits your seat.

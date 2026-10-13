@@ -343,7 +343,7 @@ export function Room({ quality = 'high' }) {
       <ambientLight intensity={0.06} color="#ffcf9a" />
       <hemisphereLight args={['#5a3418', '#0a0503', 0.35]} />
       {/* Reflections only, rendered once: makes metal, glass and varnish read as real. */}
-      <Environment resolution={64} frames={1} environmentIntensity={0.35}>
+      <Environment resolution={quality === 'lite' ? 32 : 64} frames={1} environmentIntensity={0.35}>
         <Lightformer form="circle" intensity={6} color="#ffc890" position={[0, 3, 0]} rotation-x={Math.PI / 2} scale={2} />
         <Lightformer form="rect" intensity={1.5} color="#ff7a30" position={[0, 1.5, -5]} scale={[8, 1, 1]} />
         <Lightformer form="rect" intensity={0.4} color="#ff2a10" position={[5, 2, 2]} rotation-y={-Math.PI / 2} scale={[3, 2, 1]} />
@@ -353,7 +353,7 @@ export function Room({ quality = 'high' }) {
       <Lamp key={quality} shadowSize={quality === 'high' ? 1024 : 512} />
       <Table />
       {quality === 'high' && <Smoke />}
-      <Sparkles count={quality === 'low' ? 30 : 70} scale={[4, 2.5, 4]} position={[0, 1.6, 0]} size={1.4} speed={0.12} opacity={0.4} color="#ffd9a8" />
+      {quality !== 'lite' && <Sparkles count={quality === 'low' ? 30 : 70} scale={[4, 2.5, 4]} position={[0, 1.6, 0]} size={1.4} speed={0.12} opacity={0.4} color="#ffd9a8" />}
     </>
   );
 }

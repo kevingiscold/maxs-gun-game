@@ -3,14 +3,18 @@
 import * as THREE from 'three';
 import { useTexture } from '@react-three/drei';
 import { useMemo } from 'react';
+import { useStore } from '../store.js';
 
 const SETS = ['wood_table_worn', 'old_wood_floor', 'decrepit_wallpaper', 'dark_wood', 'dirty_carpet'];
-const path = (name, map) => `textures/${name}_${map}.jpg`;
-export const ALL_TEXTURE_PATHS = SETS.flatMap((n) => ['diff', 'nor', 'rough'].map((m) => path(n, m)));
+// Lite (browsers): 512 px copies in textures/lite — about 1/20th of the download.
+const dirFor = (quality) => (quality === 'lite' ? 'textures/lite' : 'textures');
+const path = (dir, name, map) => `${dir}/${name}_${map}.jpg`;
+const allPaths = (dir) => SETS.flatMap((n) => ['diff', 'nor', 'rough'].map((m) => path(dir, n, m)));
 
 /** {map, normalMap, roughnessMap} for a set, tiled `repeat` times. */
 export function usePBR(name, repeat = [1, 1], { normalScale = 1 } = {}) {
-  const [diff, nor, rough] = useTexture([path(name, 'diff'), path(name, 'nor'), path(name, 'rough')]);
+  const dir = dirFor(useStore((s) => s.settings.quality));
+  const [diff, nor, rough] = useTexture([path(dir, name, 'diff'), path(dir, name, 'nor'), path(dir, name, 'rough')]);
   return useMemo(() => {
     const prep = (t, srgb) => {
       const c = t.clone();
@@ -30,7 +34,7 @@ export function usePBR(name, repeat = [1, 1], { normalScale = 1 } = {}) {
   }, [diff, nor, rough, repeat[0], repeat[1], normalScale]);
 }
 
-useTexture.preload(ALL_TEXTURE_PATHS);
+useTexture.preload(allPaths(dirFor(useStore.getState().settings.quality)));
 
 /** Soft round smoke puff, drawn once on a canvas (no texture file needed). */
 let smokeTex = null;

@@ -359,6 +359,7 @@ async function selfTestMurder(dir) {
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     const btn = (t) => [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === t);
     window.dispatchEvent(new PointerEvent('pointerdown'));
+    ${process.env.GUN_SELFTEST_QUALITY ? `window.__gun.useStore.getState().setSettings({ quality: ${JSON.stringify(process.env.GUN_SELFTEST_QUALITY)} }); await wait(1500);` : ''}
     btn('Play').click(); await wait(2500);
     [...document.querySelectorAll('.mode-btn')].find((b) => b.textContent.includes('Murder!')).click(); await wait(400);
     for (let i = 0; i < ${bots}; i++) { btn('Add bot').click(); await wait(300); }`);
